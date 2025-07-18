@@ -1,0 +1,15 @@
+name: secret-notes
+
+services:
+  db:
+    image: valkey/valkey:8-alpine
+    # The 'command' directive correctly passes arguments to valkey-server
+    command: valkey-server --save 60 1 --loglevel warning
+    ports:
+      - '127.0.0.1:8081:6379'
+    # Uncomment this volume to make your data persistent
+    volumes:
+      - db_data:/data
+
+volumes:
+  db_data:
