@@ -19,6 +19,7 @@ type (
 		ID() I
 		Key() K
 		Expiration() time.Duration
+		ExpiresAt() time.Time
 		MaxViews() uint64
 		Password() *string
 		Value() string

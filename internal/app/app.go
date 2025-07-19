@@ -7,6 +7,7 @@ import (
 	"github.com/alexedwards/flow"
 	"github.com/pudottapommin/secret-notes/config"
 	"github.com/pudottapommin/secret-notes/internal/api"
+	"github.com/pudottapommin/secret-notes/internal/ui"
 	"github.com/pudottapommin/secret-notes/pkg/server"
 	"github.com/valkey-io/valkey-go"
 )
@@ -28,6 +29,11 @@ func (a *App) Run(addr string) (err error) {
 		h := api.NewHandlers(a.cfg, a.db)
 		h.AddHandlers(a.E())
 	}
+	{
+		h := ui.NewHandlers(a.cfg, a.db)
+		h.AddHandlers(a.E())
+	}
+
 	log.Println("Server started on ", addr)
 	return a.Server.Run(addr)
 }
