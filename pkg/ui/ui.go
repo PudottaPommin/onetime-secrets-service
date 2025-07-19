@@ -15,10 +15,10 @@ var tplIndex = template.Must(template.New("").Funcs(template.FuncMap{
 	"expirationRanges": func() map[int]string {
 		return secrets.ExpirationRanges
 	},
-}).ParseFS(templateFS, "templates/layout.gohtml", "templates/page_index.gohtml"))
+}).ParseFS(templateFS, "templates/layout.gohtml", "templates/card_secret_form.gohtml", "templates/page_index.gohtml"))
 
-func RenderPageIndex(w io.Writer) error {
-	return tplIndex.ExecuteTemplate(w, "page_index.html", nil)
+func RenderPageIndex(w io.Writer, data PageIndex) error {
+	return tplIndex.ExecuteTemplate(w, "page_index.html", data)
 }
 
 var tplSecret = template.Must(template.New("").ParseFS(templateFS, "templates/layout.gohtml", "templates/page_secret.gohtml"))
@@ -37,4 +37,14 @@ var tplCardSecretDecrypted = template.Must(template.New("").ParseFS(templateFS, 
 
 func RenderCardSecretDecrypted(w io.Writer, data CardSecretDecrypted) error {
 	return tplCardSecretDecrypted.ExecuteTemplate(w, "card_secret_decrypted.html", data)
+}
+
+var tplCardSecretForm = template.Must(template.New("").Funcs(template.FuncMap{
+	"expirationRanges": func() map[int]string {
+		return secrets.ExpirationRanges
+	},
+}).ParseFS(templateFS, "templates/card_secret_form.gohtml"))
+
+func RenderCardSecretForm(w io.Writer) error {
+	return tplCardSecretForm.ExecuteTemplate(w, "card_secret_form.html", nil)
 }

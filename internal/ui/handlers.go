@@ -12,13 +12,19 @@ import (
 	"github.com/gofrs/uuid/v5"
 	"github.com/pudottapommin/secret-notes/pkg/encryption"
 	"github.com/pudottapommin/secret-notes/pkg/secrets"
+	"github.com/pudottapommin/secret-notes/pkg/server"
 	"github.com/pudottapommin/secret-notes/pkg/storage"
 	"github.com/pudottapommin/secret-notes/pkg/ui"
 	"github.com/starfederation/datastar-go/datastar"
 )
 
 func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
-	if err := ui.RenderPageIndex(w); err != nil {
+	isAuthenticated, ok := r.Context().Value("isAuthenticated").(bool)
+	if !ok {
+		isAuthenticated = true
+	}
+	model := ui.PageIndex{IsAuthenticated: isAuthenticated}
+	if err := ui.RenderPageIndex(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -28,7 +34,7 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 		Value      string  `json:"value"`
 		Password   *string `json:"password,omitempty"`
 		Expiration int     `json:"expiration,omitempty"`
-		MaxViews   uint64  `json:"max_views,omitempty"`
+		MaxViews   uint64  `json:"maxViews,omitempty"`
 	}
 	if err := datastar.ReadSignals(r, &signal); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -211,5 +217,61 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-	sse.PatchElements(sb.String(), datastar.WithSelectorID("secret-detail"))
+	sse.PatchElements(sb.String(), datastar.WithSelectorID("secret-detail"), datastar.WithModeReplace())
+}
+
+func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
+	var signal struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := datastar.ReadSignals(r, &signal); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if signal.Username == "" || signal.Password == "" {
+		var errorSignal struct {
+			ErrorUsername string `json:"errorUsername"`
+			ErrorPassword string `json:"errorPassword"`
+		}
+		if signal.Username == "" {
+			errorSignal.ErrorUsername = "username is required"
+		}
+		if signal.Password == "" {
+			errorSignal.ErrorPassword = "password is required"
+		}
+		sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
+		sse.MarshalAndPatchSignals(errorSignal)
+		return
+	}
+
+	if signal.Username != h.cfg.BasicAuthUsername || signal.Password != h.cfg.BasicAuthPassword {
+		var errorSignal struct {
+			ErrorUsername string `json:"errorUsername"`
+		}
+		errorSignal.ErrorUsername = "wrong username or password"
+		sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
+		sse.MarshalAndPatchSignals(errorSignal)
+		return
+	}
+
+	token, _ := server.NewAuthToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "onetimesecretsecret",
+		Value:    token,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+	sb := new(strings.Builder)
+	if err := ui.RenderCardSecretForm(sb); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
+	signal.Username = ""
+	signal.Password = ""
+	sse.MarshalAndPatchSignals(signal)
+	sse.PatchElements(sb.String(), datastar.WithSelectorID("login-form"), datastar.WithModeReplace())
 }

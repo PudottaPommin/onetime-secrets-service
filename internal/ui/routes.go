@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"encoding/base64"
+	"context"
 	"net/http"
-	"strings"
 
 	"github.com/alexedwards/flow"
 	"github.com/pudottapommin/secret-notes/config"
 	"github.com/pudottapommin/secret-notes/pkg/secrets"
+	"github.com/pudottapommin/secret-notes/pkg/server"
 	"github.com/pudottapommin/secret-notes/pkg/storage"
 	"github.com/valkey-io/valkey-go"
 )
@@ -31,34 +31,22 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 		if h.cfg.BasicAuthEnabled {
 			g.Use(func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					isAuthenticated := true
 					if r.URL.Path == "/" {
-						authHeader := r.Header.Get("Authorization")
-						if authHeader == "" {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
+						isAuthenticated = false
+						if cv, err := r.Cookie("onetimesecretsecret"); err == nil {
+							if err = cv.Valid(); err == nil {
+								isAuthenticated = server.AuthTokenValid(cv.Value)
+							}
 						}
 
-						if !strings.HasPrefix(authHeader, "Basic ") {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
-
-						payload, err := base64.StdEncoding.DecodeString(authHeader[6:])
-						if err != nil {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
-
-						pair := strings.SplitN(string(payload), ":", 2)
-						if len(pair) != 2 || pair[0] != h.cfg.BasicAuthUsername || pair[1] != h.cfg.BasicAuthPassword {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
 					}
+					r = r.WithContext(context.WithValue(r.Context(), "isAuthenticated", isAuthenticated))
 					next.ServeHTTP(w, r)
 				})
 			})
 		}
+		g.HandleFunc("/authenticate", h.authenticatePOST, "post")
 		g.HandleFunc("/", h.indexPUT, "PUT")
 		g.HandleFunc("/", h.indexGET, "GET")
 	})

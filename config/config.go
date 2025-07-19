@@ -9,7 +9,7 @@ type Config struct {
 	DB      string `env:"SECRET_SERVICE_DB" envDefault:"localhost:8081"`
 	Host    string `env:"SECRET_SERVICE_HOST" envDefault:"localhost:8080"`
 
-	BasicAuthEnabled  bool   `env:"SECRET_SERVICE_BASIC_AUTH_ENABLED" envDefault:"false"`
+	BasicAuthEnabled  bool   `env:"SECRET_SERVICE_BASIC_AUTH_ENABLED" envDefault:"true"`
 	BasicAuthUsername string `env:"SECRET_SERVICE_BASIC_AUTH_USERNAME" envDefault:"admin"`
 	BasicAuthPassword string `env:"SECRET_SERVICE_BASIC_AUTH_PASSWORD" envDefault:"admin"`
 }

@@ -34,6 +34,10 @@ func (a *App) Run(addr string) (err error) {
 		h.AddHandlers(a.E())
 	}
 
+	if a.cfg.BasicAuthEnabled {
+		go server.AuthTokenCleanup(a.Server.Ctx())
+	}
+
 	log.Println("Server started on ", addr)
 	return a.Server.Run(addr)
 }

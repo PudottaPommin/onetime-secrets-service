@@ -17,6 +17,8 @@ func New(ctx context.Context, e *flow.Mux) *Server {
 	return &Server{ctx: ctx, e: e}
 }
 
+func (s *Server) Ctx() context.Context { return s.ctx }
+
 func (s *Server) E() *flow.Mux { return s.e }
 
 func (s *Server) Run(addr string) (err error) {
