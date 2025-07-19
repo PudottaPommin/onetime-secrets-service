@@ -1,4 +1,4 @@
-package api
+package ui
 
 import (
 	"encoding/base64"
@@ -31,7 +31,7 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 		if h.cfg.BasicAuthEnabled {
 			g.Use(func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.URL.Path == "/api/create" && r.Method == "POST" {
+					if r.URL.Path == "/" {
 						authHeader := r.Header.Get("Authorization")
 						if authHeader == "" {
 							w.WriteHeader(http.StatusUnauthorized)
@@ -59,7 +59,9 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 				})
 			})
 		}
-		g.HandleFunc("/api/create", h.secretPUT, "PUT")
+		g.HandleFunc("/", h.indexPUT, "PUT")
+		g.HandleFunc("/", h.indexGET, "GET")
 	})
-	e.HandleFunc("/api/:value", h.secretGET, "GET")
+	e.HandleFunc("/:value", h.secretPOST, "POST")
+	e.HandleFunc("/:value", h.secretGET, "GET")
 }

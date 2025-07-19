@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/pudottapommin/secret-notes/pkg/encryption"
@@ -68,11 +67,6 @@ func (s *ValkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 	if counter == 0 {
 		return nil, s.Burn(ctx, id)
 	}
-	defer func() {
-		if err = s.client.Do(ctx, s.client.B().Decr().Key(recordCounterKey).Build()).Error(); err != nil {
-			log.Println(err)
-		}
-	}()
 
 	message, err := s.client.Do(ctx, s.client.B().Get().Key(recordKey).Build()).ToString()
 	if err != nil {
@@ -101,6 +95,30 @@ func (s *ValkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 		}
 	}
 	return record, nil
+}
+
+func (s *ValkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
+	_, recordCounterKey := s.generateStorageKeys(id)
+	views, err := s.client.Do(ctx, s.client.B().Get().Key(recordCounterKey).Build()).AsUint64()
+	if err != nil {
+		if valkey.IsValkeyNil(err) {
+			return 0, ErrRecordNotFound
+		}
+		return 0, fmt.Errorf("valkeya: error getting views left: %w", err)
+	}
+	return views, nil
+}
+
+func (s *ValkeyStorage) Viewed(ctx context.Context, id ID) error {
+	_, recordCounterKey := s.generateStorageKeys(id)
+	viewsLeft, err := s.ViewsLeft(ctx, id)
+	if err != nil {
+		return err
+	}
+	if viewsLeft == 0 {
+		return s.Burn(ctx, id)
+	}
+	return s.client.Do(ctx, s.client.B().Decr().Key(recordCounterKey).Build()).Error()
 }
 
 func (s *ValkeyStorage) Burn(ctx context.Context, id ID) error {

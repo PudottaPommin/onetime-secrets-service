@@ -17,11 +17,13 @@ type (
 		maxViews   uint64
 		password   *string
 		value      string
+		expiresAt  time.Time
 	}
 
 	secretJson struct {
-		Value    string  `json:"value"`
-		Password *string `json:"password,omitempty"`
+		Value     string    `json:"value"`
+		Password  *string   `json:"password,omitempty"`
+		ExpiresAt time.Time `json:"expires_at"`
 	}
 )
 
@@ -45,6 +47,10 @@ func (s *Secret) Key() storage.Key {
 
 func (s *Secret) Expiration() time.Duration {
 	return s.expiration
+}
+
+func (s *Secret) ExpiresAt() time.Time {
+	return s.expiresAt
 }
 
 func (s *Secret) MaxViews() uint64 {
@@ -75,7 +81,11 @@ func (s *Secret) SetPassword(password string) {
 	s.password = &password
 }
 
-func (s *Secret) MarshalEncrypt() ([]byte, error) {
+func (s *Secret) seal() {
+	s.expiresAt = time.Now().Add(s.expiration).UTC()
+}
+
+func (s Secret) MarshalEncrypt() ([]byte, error) {
 	bytes, err := s.MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("secret: error marshaling secret: %w", err)
@@ -96,9 +106,11 @@ func (s *Secret) UnmarshalEncrypt(end []byte) error {
 }
 
 func (s Secret) MarshalJSON() ([]byte, error) {
+	s.seal()
 	var d secretJson
 	d.Value = s.value
 	d.Password = s.password
+	d.ExpiresAt = s.expiresAt
 	return json.Marshal(d)
 }
 
@@ -109,5 +121,6 @@ func (s *Secret) UnmarshalJSON(data []byte) error {
 	}
 	s.value = d.Value
 	s.password = d.Password
+	s.expiresAt = d.ExpiresAt
 	return nil
 }
