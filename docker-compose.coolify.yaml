@@ -1,23 +1,36 @@
 name: secret-notes
 
 services:
+  oss:
+    environment:
+      - 'SERVICE_FQDN_OSS_8080'
+      - 'OSS_DOMAIN=${SERVICE_FQDN_OSS_OSS:-http://localhost:8080}'
+      - 'OSS_DB=${OSS_DB:-db:6379}'
+      - 'OSS_HOST=${SERVICE_FQDN_OSS_8080:-0.0.0.0:8080}'
+      - 'OSS_UI=${OSS_UI:-true}'
+      - 'OSS_BASIC_AUTH_ENABLED=${OSS_BASIC_AUTH_ENABLED:-true}'
+      - 'OSS_BASIC_AUTH_USERNAME=${OSS_BASIC_AUTH_USERNAME:-admin}'
+      - 'OSS_BASIC_AUTH_PASSWORD=${OSS_BASIC_AUTH_PASSWORD:-admin}'
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080"]
+      interval: 2s
+      timeout: 10s
+      retries: 30
+
   db:
     image: valkey/valkey:8-alpine
     command: valkey-server --save 60 1 --loglevel warning
     volumes:
       - db_data:/data
-  app:
-    build: .
-    ports:
-      - '127.0.0.1:8080:8080'
-    environment:
-      - 'OSS_DOMAIN=${OSS_DOMAIN:-http://localhost:8080}'
-      - 'OSS_DB=${OSS_DB:-db:6379}'
-      - 'OSS_HOST=${OSS_HOST:-0.0.0.0:8080}'
-      - 'OSS_UI=${OSS_UI:-true}'
-      - 'OSS_BASIC_AUTH_ENABLED=${OSS_BASIC_AUTH_ENABLED:-true}'
-      - 'OSS_BASIC_AUTH_USERNAME=${OSS_BASIC_AUTH_USERNAME:-admin}'
-      - 'OSS_BASIC_AUTH_PASSWORD=${OSS_BASIC_AUTH_PASSWORD:-admin}'
+    healthcheck:
+        test: [ "CMD", "valkey-cli", "ping"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
 
 volumes:
   db_data:
