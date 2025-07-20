@@ -34,7 +34,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
- .requests/
 
- # Assets
- node_modules/
+#others
+.requests/
+
+# Added by goreleaser init:
+artifacts/
