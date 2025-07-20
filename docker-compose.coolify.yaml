@@ -1,0 +1,23 @@
+name: secret-notes
+
+services:
+  db:
+    image: valkey/valkey:8-alpine
+    command: valkey-server --save 60 1 --loglevel warning
+    volumes:
+      - db_data:/data
+  app:
+    build: .
+    ports:
+      - '127.0.0.1:8080:8080'
+    environment:
+      - 'SECRET_SERVICE_DOMAIN=${SECRET_SERVICE_DOMAIN:-http://localhost:8080}'
+      - 'SECRET_SERVICE_DB=${SECRET_SERVICE_DB:-db:6379}'
+      - 'SECRET_SERVICE_HOST=${SECRET_SERVICE_HOST:-0.0.0.0:8080}'
+      - 'SECRET_SERVICE_UI=${SECRET_SERVICE_UI:-true}'
+      - 'SECRET_SERVICE_BASIC_AUTH_ENABLED=${SECRET_SERVICE_BASIC_AUTH_ENABLED:-false}'
+      - 'SECRET_SERVICE_BASIC_AUTH_USERNAME=${SECRET_SERVICE_BASIC_AUTH_USERNAME:-admin}'
+      - 'SECRET_SERVICE_BASIC_AUTH_PASSWORD=${SECRET_SERVICE_BASIC_AUTH_PASSWORD:-admin}'
+
+volumes:
+  db_data:
