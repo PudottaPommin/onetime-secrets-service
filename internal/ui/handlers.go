@@ -32,7 +32,7 @@ func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 	var signal struct {
 		Value      string  `json:"value"`
-		Password   *string `json:"password,omitempty"`
+		Passphrase *string `json:"passphrase,omitempty"`
 		Expiration int     `json:"expiration,omitempty"`
 		MaxViews   uint64  `json:"maxViews,omitempty"`
 	}
@@ -58,8 +58,8 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 	}
 	secret := secrets.NewSecret(id, key)
 	secret.SetValue(signal.Value)
-	if signal.Password != nil && *signal.Password != "" {
-		secret.SetPassword(*signal.Password)
+	if signal.Passphrase != nil && *signal.Passphrase != "" {
+		secret.SetPassphrase(*signal.Passphrase)
 	}
 	if signal.MaxViews > 1 {
 		secret.SetMaxViews(signal.MaxViews)
@@ -141,10 +141,10 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model := ui.PageSecret{
-		Url:       r.URL.Path,
-		Secret:    secret.Value(),
-		Password:  secret.Password(),
-		ViewsLeft: viewsLeft,
+		Url:        r.URL.Path,
+		Secret:     secret.Value(),
+		Passphrase: secret.Passphrase(),
+		ViewsLeft:  viewsLeft,
 	}
 	if err = ui.RenderPageSecret(w, model); err != nil {
 		log.Println(err)
@@ -187,16 +187,21 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if secret.Password() != nil && *secret.Password() != "" {
+	if secret.Passphrase() != nil && *secret.Passphrase() != "" {
 		var signal struct {
-			Password string `json:"password"`
+			Passphrase string `json:"passphrase"`
 		}
 		if err = datastar.ReadSignals(r, &signal); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if signal.Password != *secret.Password() {
-			http.Error(w, "wrong password", http.StatusUnauthorized)
+		if signal.Passphrase != *secret.Passphrase() {
+			var errorSignal struct {
+				ErrorPassphrase string `json:"errorPassphrase"`
+			}
+			errorSignal.ErrorPassphrase = "unable to unlock secret"
+			sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
+			sse.MarshalAndPatchSignals(errorSignal)
 			return
 		}
 	}

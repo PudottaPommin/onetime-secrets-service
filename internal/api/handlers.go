@@ -47,7 +47,7 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if dto.Password != nil && *dto.Password != "" {
-		secret.SetPassword(*dto.Password)
+		secret.SetPassphrase(*dto.Password)
 	}
 
 	insert, err := h.db.Store(ctx, secret)
