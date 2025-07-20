@@ -8,6 +8,13 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-s -w" -trimpath -o
 RUN upx --best --lzma ./server
 
 FROM alpine
+LABEL org.opencontainers.image.source="https://github.com/PudottaPommin/onetime-secrets-service"
+LABEL org.opencontainers.image.description="Onetime Secrets Service"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.authors="Michal Hanajík michal@hanajik.com"
+#LABEL org.opencontainers.image.version="1.0.0"
+
 COPY --from=build /app/server /server
 ENV OSS_HOST="0.0.0.0:8080"
+EXPOSE 8080
 ENTRYPOINT ["/server"]
