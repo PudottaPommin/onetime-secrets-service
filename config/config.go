@@ -5,9 +5,13 @@ import (
 )
 
 type Config struct {
-	Domaine string `env:"SECRET_SERVICE_DOMAIN" envDefault:"http://localhost:8080"`
-	DB      string `env:"SECRET_SERVICE_DB" envDefault:"localhost:8081"`
-	Host    string `env:"SECRET_SERVICE_HOST" envDefault:"localhost:8080"`
+	Domaine           string `env:"OSS_DOMAIN" envDefault:"http://localhost:8080"`
+	DB                string `env:"OSS_DB" envDefault:"localhost:8081"`
+	Host              string `env:"OSS_HOST" envDefault:"localhost:8080"`
+	UI                bool   `env:"OSS_UI" envDefault:"true"`
+	BasicAuthEnabled  bool   `env:"OSS_BASIC_AUTH_ENABLED" envDefault:"false"`
+	BasicAuthUsername string `env:"OSS_BASIC_AUTH_USERNAME" envDefault:"admin"`
+	BasicAuthPassword string `env:"OSS_BASIC_AUTH_PASSWORD" envDefault:"admin"`
 }
 
 func (c *Config) Load() error {

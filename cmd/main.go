@@ -22,7 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-
+	
 	webApp := app.New(ctx, db, cfg)
 	defer webApp.Shutdown(ctx)
 	if err = webApp.Run(cfg.Host); err != nil {

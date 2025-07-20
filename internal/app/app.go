@@ -7,7 +7,9 @@ import (
 	"github.com/alexedwards/flow"
 	"github.com/pudottapommin/secret-notes/config"
 	"github.com/pudottapommin/secret-notes/internal/api"
+	"github.com/pudottapommin/secret-notes/internal/ui"
 	"github.com/pudottapommin/secret-notes/pkg/server"
+	pui "github.com/pudottapommin/secret-notes/pkg/ui"
 	"github.com/valkey-io/valkey-go"
 )
 
@@ -24,10 +26,21 @@ func New(ctx context.Context, db valkey.Client, cfg *config.Config) *App {
 }
 
 func (a *App) Run(addr string) (err error) {
+	a.E().Use(pui.StaticMiddleware())
+
 	{
 		h := api.NewHandlers(a.cfg, a.db)
 		h.AddHandlers(a.E())
 	}
+	if a.cfg.UI {
+		h := ui.NewHandlers(a.cfg, a.db)
+		h.AddHandlers(a.E())
+	}
+
+	if a.cfg.BasicAuthEnabled {
+		go server.AuthTokenCleanup(a.Server.Ctx())
+	}
+
 	log.Println("Server started on ", addr)
 	return a.Server.Run(addr)
 }

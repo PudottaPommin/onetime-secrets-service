@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 	"github.com/pudottapommin/secret-notes/pkg/storage"
 )
 
-func (h *handlers) secretsPOST(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var dto SecretsRequestData
@@ -23,7 +24,7 @@ func (h *handlers) secretsPOST(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	if err := decoder.Decode(&dto); err != nil {
 		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -31,7 +32,7 @@ func (h *handlers) secretsPOST(w http.ResponseWriter, r *http.Request) {
 	key := make([]byte, 32)
 	if err := encryption.GenerateNewKey(key); err != nil {
 		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	secret := secrets.NewSecret(id, key)
@@ -46,13 +47,13 @@ func (h *handlers) secretsPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if dto.Password != nil && *dto.Password != "" {
-		secret.SetPassword(*dto.Password)
+		secret.SetPassphrase(*dto.Password)
 	}
 
 	insert, err := h.db.Store(ctx, secret)
 	if err != nil {
 		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -65,43 +66,43 @@ func (h *handlers) secretsPOST(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		log.Println(err)
 		w.Header().Del("Content-Type")
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 }
 
-func (h *handlers) secretsGET(w http.ResponseWriter, r *http.Request) {
+func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	slug := strings.TrimSpace(r.PathValue("slug"))
-	if slug == "" {
+	value := strings.TrimSpace(r.PathValue("value"))
+	if value == "" {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	parts := strings.Split(slug, "-")
+	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
 		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	gid, err := uuid.FromString(parts[1])
 	if err != nil {
 		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	id := storage.ID(gid.String())
 
 	secret, err := h.db.Get(ctx, id, encKey)
-	if err != nil {
-		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	if secret == nil {
+	switch {
+	case errors.Is(err, storage.ErrRecordNotFound) || (err == nil && secret == nil):
 		w.WriteHeader(http.StatusNotFound)
+		return
+	case err != nil:
+		log.Println(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

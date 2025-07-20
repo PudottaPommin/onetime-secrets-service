@@ -19,11 +19,12 @@ type (
 		ID() I
 		Key() K
 		Expiration() time.Duration
+		ExpiresAt() time.Time
 		MaxViews() uint64
-		Password() *string
+		Passphrase() *string
 		Value() string
 		SetValue(string)
-		SetPassword(string)
+		SetPassphrase(string)
 	}
 
 	InsertResult[I ~string, K ~[]byte] struct {
