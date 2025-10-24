@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid/v5"
-	"github.com/pudottapommin/secret-notes/pkg/encryption"
-	"github.com/pudottapommin/secret-notes/pkg/secrets"
-	"github.com/pudottapommin/secret-notes/pkg/server"
-	"github.com/pudottapommin/secret-notes/pkg/storage"
-	"github.com/pudottapommin/secret-notes/pkg/ui"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/ui"
 	"github.com/starfederation/datastar-go/datastar"
 )
 

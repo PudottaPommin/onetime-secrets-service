@@ -5,11 +5,11 @@ import (
 	"log"
 
 	"github.com/alexedwards/flow"
-	"github.com/pudottapommin/secret-notes/config"
-	"github.com/pudottapommin/secret-notes/internal/api"
-	"github.com/pudottapommin/secret-notes/internal/ui"
-	"github.com/pudottapommin/secret-notes/pkg/server"
-	pui "github.com/pudottapommin/secret-notes/pkg/ui"
+	"github.com/pudottapommin/onetime-secrets-service/config"
+	"github.com/pudottapommin/onetime-secrets-service/internal/api"
+	"github.com/pudottapommin/onetime-secrets-service/internal/ui"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
+	pui "github.com/pudottapommin/onetime-secrets-service/pkg/ui"
 	"github.com/valkey-io/valkey-go"
 )
 

@@ -2,7 +2,8 @@ package api
 
 import (
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log"
@@ -11,18 +12,18 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid/v5"
-	"github.com/pudottapommin/secret-notes/pkg/encryption"
-	"github.com/pudottapommin/secret-notes/pkg/secrets"
-	"github.com/pudottapommin/secret-notes/pkg/storage"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 )
 
 func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var dto SecretsRequestData
-	decoder := json.NewDecoder(r.Body)
 	defer r.Body.Close()
-	if err := decoder.Decode(&dto); err != nil {
+	decoder := jsontext.NewDecoder(r.Body)
+	if err := json.UnmarshalDecode(decoder, &dto); err != nil {
 		log.Println(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -58,9 +59,9 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	encoder := json.NewEncoder(w)
+	encoder := jsontext.NewEncoder(w)
 	normalizedID := strings.ReplaceAll(string(id), "-", "")
-	if err = encoder.Encode(SecretResponseData{
+	if err = json.MarshalEncode(encoder, SecretResponseData{
 		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domaine, insert.Key, normalizedID),
 		ExpiresAt: insert.ExpiresAt,
 	}); err != nil {

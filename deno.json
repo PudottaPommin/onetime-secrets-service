@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "check": "GOEXPERIMENT=greenteagc,jsonv2 go vet ./...",
+    "fmt": "go fmt ./... && go tool goimports -w .",
+    "update": "go get -u ./... && go mod tidy -v",
+    "dev": "GOEXPERIMENT=greenteagc,jsonv2 go tool wgo -file=.gohtml -file=.go go run ./cmd/server/main.go",
+    "build:win": "go build -trimpath ./cmd/server/main.go",
+    "release": "goreleaser release --clean",
+    "release:snapshot": "goreleaser release --snapshot --clean"
+  }
+}

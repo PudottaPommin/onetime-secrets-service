@@ -5,10 +5,10 @@ import (
 	"net/http"
 
 	"github.com/alexedwards/flow"
-	"github.com/pudottapommin/secret-notes/config"
-	"github.com/pudottapommin/secret-notes/pkg/secrets"
-	"github.com/pudottapommin/secret-notes/pkg/server"
-	"github.com/pudottapommin/secret-notes/pkg/storage"
+	"github.com/pudottapommin/onetime-secrets-service/config"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 	"github.com/valkey-io/valkey-go"
 )
 

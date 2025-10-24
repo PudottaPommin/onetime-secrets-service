@@ -3,11 +3,11 @@ package storage
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
-	"github.com/pudottapommin/secret-notes/pkg/encryption"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/valkey-io/valkey-go"
 )
 

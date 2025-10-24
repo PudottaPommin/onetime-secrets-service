@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"io"
 
-	"github.com/pudottapommin/secret-notes/pkg/secrets"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 )
 
 //go:embed templates/*.gohtml

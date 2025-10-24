@@ -1,12 +1,12 @@
 package secrets
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
-	"github.com/pudottapommin/secret-notes/pkg/encryption"
-	"github.com/pudottapommin/secret-notes/pkg/storage"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 )
 
 type (

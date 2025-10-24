@@ -1,4 +1,4 @@
-{{- /*gotype: github.com/pudottapommin/secret-notes/pkg/ui.PageIndex*/ -}}
+{{- /*gotype: github.com/pudottapommin/onetime-secrets-service/pkg/ui.PageIndex*/ -}}
 {{define "page_index.html"}}
     {{template "layout.html" .}}
 {{end}}
@@ -13,14 +13,14 @@
                 @post('/authenticate')
              }
 }"
-                 data-on-keydown="evt.key === 'Enter' && $_submit()"
+                 data-on:keydown="evt.key === 'Enter' && $_submit()"
         >
             <header><h1>You need to log in :)</h1></header>
             <div style="display:grid; gap: 1rem;">
                 <div>
                     <label for="username">Username</label>
-                    <input data-bind-username
-                           data-attr-aria-invalid="!!$errorUsername ? 'true' : ($username.length > 0 ? 'false' : false)"
+                    <input data-bind:username
+                           data-attr:aria-invalid="!!$errorUsername ? 'true' : ($username.length > 0 ? 'false' : false)"
                            aria-describedby="username_invalid_helper"
                            type="text"
                            name="username"
@@ -34,10 +34,10 @@
                 <div>
                     <label for="password">Password</label>
                     <div style="position: relative;">
-                        <input data-bind-password
-                               data-signals-_show-password="false"
-                               data-attr-type="$_showPassword ? 'text' : 'password'"
-                               data-attr-aria-invalid="!!$errorPassword ? 'true' : ($password.length > 0 ? 'false' : false)"
+                        <input data-bind:password
+                               data-signals:_show-password="false"
+                               data-attr:type="$_showPassword ? 'text' : 'password'"
+                               data-attr:aria-invalid="!!$errorPassword ? 'true' : ($password.length > 0 ? 'false' : false)"
                                aria-describedby="password_invalid_helper"
                                id="password"
                                name="password"
@@ -45,7 +45,7 @@
                                placeholder="*****"
                                required
                                style="padding-right: 3rem;"/>
-                        <button data-on-click="@toggleAll({include: /^_showPassword$/})"
+                        <button data-on:click="@toggleAll({include: /^_showPassword$/})"
                                 style="background: none; border: none; position: absolute; right: 0;">
                             <span data-show="$_showPassword" style="display: none;">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g
@@ -65,11 +65,11 @@
                     </div>
                 </div>
 
-                <button data-on-click="$_submit"
-                        data-indicator-_fetching
-                        data-attr-disabled="$_hasErrors || $_fetching"
-                        data-attr-aria-busy="$_fetching ? 'true' : false"
-                        data-attr-aria-label="$_fetching ? 'Please wait…' : false"
+                <button data-on:click="$_submit"
+                        data-indicator:_fetching
+                        data-attr:disabled="$_hasErrors || $_fetching"
+                        data-attr:aria-busy="$_fetching ? 'true' : false"
+                        data-attr:aria-label="$_fetching ? 'Please wait…' : false"
                         data-text="$_fetching ? 'Please wait...' : 'Log in'">
                 </button>
             </div>

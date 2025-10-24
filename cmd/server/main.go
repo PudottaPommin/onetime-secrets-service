@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/pudottapommin/secret-notes/config"
-	"github.com/pudottapommin/secret-notes/internal/app"
+	"github.com/pudottapommin/onetime-secrets-service/config"
+	"github.com/pudottapommin/onetime-secrets-service/internal/app"
 	"github.com/valkey-io/valkey-go"
 )
 
@@ -22,7 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	
+
 	webApp := app.New(ctx, db, cfg)
 	defer webApp.Shutdown(ctx)
 	if err = webApp.Run(cfg.Host); err != nil {

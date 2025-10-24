@@ -7,6 +7,8 @@
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
 
 version: 2
+project_name: onetime-secrets-service
+dist: ./artifacts
 
 before:
   hooks:
@@ -16,21 +18,19 @@ before:
     # - go generate ./...
 
 builds:
-  - main: ./cmd/main.go
+  - main: ./cmd/server/main.go
     env:
       - CGO_ENABLED=0
-    goos:
-      - linux
-      - windows
-#      - darwin
-    goarch:
-      - amd64
-      - arm64
-
-dist: ./artifacts
+      - GOEXPERIMENT=greenteagc,jsonv2
+    binary: server
+    goos: [ linux, windows ]
+    goarch: [ amd64, arm64 ]
+    ldflags: "-s -w -X github.com/pudottapommin/onetime-secrets-service/pkg/version.Version={{.Version}} -X github.com/pudottapommin/onetime-secrets-service/pkg/version.Commit={{.Commit}} -X github.com/pudottapommin/onetime-secrets-service/pkg/version.Date={{.Date}}"
+    flags: [ "-trimpath" ]
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 upx:
-  - enabled: true
+  - enabled: false
     compress: best
     lzma: true
     brute: false
@@ -63,6 +63,23 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+
+dockers_v2:
+  - images:
+      - "ghcr.io/pudottapommin/{{.ProjectName}}"
+    platforms: [ linux/amd64, linux/arm64 ]
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .IsNightly }}latest{{ end }}"
+    labels:
+      "org.opencontainers.image.description": "Onetime Secrets Service"
+      "org.opencontainers.image.created": "{{.Date}}"
+      "org.opencontainers.image.name": "{{.ProjectName}}"
+      "org.opencontainers.image.revision": "{{.FullCommit}}"
+      "org.opencontainers.image.version": "{{.Version}}"
+      "org.opencontainers.image.source": "{{.GitURL}}"
+      "org.opencontainers.image.license": "MIT"
+      "org.opencontainers.image.authors": "Michal Hanajík michal@hanajik.com"
 
 #release:
 #  footer: >-
