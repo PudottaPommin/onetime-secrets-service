@@ -1,35 +1,27 @@
 {{define "layout.html"}}
     <!doctype html>
-    <html lang="en">
+    <html lang="en" class="bg-white dark:bg-gray-950 scheme-light dark:scheme-dark">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light dark">
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-        <link rel="manifest" href="/site.webmanifest">
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.blue.min.css">
-        <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.6/bundles/datastar.js"></script>
-        <title>Onetime secret service</title>
-        <style>
-            html, body {
-                height: 100%; /* Make html and body take 100% of their parent's height */
-                margin: 0; /* Remove default margin from body */
-                padding: 0; /* Remove default padding from body */
-            }
+        <link rel="apple-touch-icon" sizes="180x180" href="{{asset "apple-touch-icon.png"}}">
+        <link rel="icon" type="image/png" sizes="32x32" href="{{asset "favicon-32x32.png"}}">
+        <link rel="icon" type="image/png" sizes="16x16" href="{{asset "favicon-16x16.png"}}">
 
-            /* Optional: If you want content inside the body to fill remaining space using flexbox */
-            body {
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-            }
-        </style>
+        <link rel="stylesheet" href="{{asset "app.min.css"}}">
+        <link rel="stylesheet" href="{{asset "inter.min.css"}}">
+
+        <script type="module" src="{{asset "htmx.min.js"}}"></script>
+        <script type="module" src="{{asset "alpinejs.min.js"}}"></script>
+
+        <title>Onetime secret service</title>
     </head>
     <body>
-    <main class="container" data-signals="{}">
-        {{template "content" .}}
+    <main class="@container">
+        <div class="mx-auto px-4 @lg:px-0">
+            {{template "content" .}}
+        </div>
     </main>
     </body>
     </html>

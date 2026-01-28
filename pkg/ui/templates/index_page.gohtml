@@ -1,0 +1,12 @@
+{{- /*gotype: github.com/pudottapommin/onetime-secrets-service/pkg/ui.PageIndex*/ -}}
+{{define "index/page.html"}}
+    {{template "layout.html" .}}
+{{end}}
+
+{{define "content"}}
+    {{if .IsAuthenticated}}
+        {{template "index/secret_form.html" .FormModel}}
+    {{else}}
+        {{template "index/auth_form.html" .}}
+    {{end}}
+{{end}}

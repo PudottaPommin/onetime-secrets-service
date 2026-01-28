@@ -12,5 +12,24 @@ services:
     volumes:
       - db_data:/data
 
+  oss:
+    image: ghcr.io/pudottapommin/onetime-secrets-service:0.0.2-SNAPSHOT-0682dc3-amd64
+    profiles:
+      - staging
+    mem_limit: 1g
+    ports:
+      - '127.0.0.1:8080:8080'
+    environment:
+      - OSS_PROD=true
+      - OSS_DOMAIN=http://dev.oss.local
+      - OSS_DB=db:6379
+      - OSS_HOST=0.0.0.0:8080
+      - OSS_BASIC_AUTH_ENABLED=1
+      - OSS_BASIC_AUTH_USERNAME=test
+      - OSS_BASIC_AUTH_PASSWORD=test
+      - OSS_UI=true
+      - OSS_CSRF_HASH_KEY=RoSgazwcloaLM/NzzZHpfzchnfO/pMQgSsnSKj9pfRk=
+      - OSS_CSRF_BLOCK_KEY=3PTaufgXwR3napymVm7rmh/cNtpyAdjNqBn0KG4ogJs=
+
 volumes:
   db_data:

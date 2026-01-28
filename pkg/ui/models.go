@@ -5,10 +5,16 @@ import (
 )
 
 type (
+	FormModel struct {
+		CsrfField string
+		CsrfToken string
+	}
 	PageIndex struct {
+		*FormModel
 		IsAuthenticated bool
 	}
 	PageSecret struct {
+		*FormModel
 		NotFound   bool
 		Url        string
 		Secret     string

@@ -1,21 +1,22 @@
 package ui
 
 import (
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/pudottapommin/golib/http/middleware/csrf"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/ui"
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
@@ -23,70 +24,75 @@ func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		isAuthenticated = true
 	}
-	model := ui.PageIndex{IsAuthenticated: isAuthenticated}
-	if err := ui.RenderPageIndex(w, model); err != nil {
+
+	csrfToken := csrf.FromContextStringed(r.Context())
+	csrfField := csrf.FromContextFieldName(r.Context())
+	model := ui.PageIndex{IsAuthenticated: isAuthenticated, FormModel: &ui.FormModel{CsrfField: csrfField, CsrfToken: csrfToken}}
+	if err := ui.Index.ExecutePage(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
 func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
-	var signal struct {
-		Value      string  `json:"value"`
-		Passphrase *string `json:"passphrase,omitempty"`
-		Expiration int     `json:"expiration,omitempty"`
-		MaxViews   uint64  `json:"maxViews,omitempty"`
-	}
-	if err := datastar.ReadSignals(r, &signal); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if signal.Value == "" {
-		var errorSignal struct {
-			ErrorValue string `json:"errorValue"`
+	value := r.FormValue("secret")
+	if value == "" {
+		if err := ui.Index.ExecuteHTMXSecretError(w, "Secret is required"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-		errorSignal.ErrorValue = "value is required"
-		sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-		sse.MarshalAndPatchSignals(errorSignal)
 		return
 	}
 
 	id := storage.ID(uuid.Must(uuid.NewV4()).String())
-	key := make([]byte, 32)
-	if err := encryption.GenerateNewKey(key); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	key := encryption.GenerateNewKey(32)
 	secret := secrets.NewSecret(id, key)
-	secret.SetValue(signal.Value)
-	if signal.Passphrase != nil && *signal.Passphrase != "" {
-		secret.SetPassphrase(*signal.Passphrase)
+	secret.SetValue(value)
+
+	passphrase := r.FormValue("passphrase")
+	if passphrase != "" {
+		secret.SetPassphrase(passphrase)
 	}
-	if signal.MaxViews > 1 {
-		secret.SetMaxViews(signal.MaxViews)
+
+	maxViews, err := strconv.ParseUint(r.FormValue("maxViews"), 10, 64)
+	switch {
+	case err != nil:
+		if err = ui.Index.ExecuteHTMXSecretError(w, "Invalid max views value"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		return
+	case maxViews > 1:
+		secret.SetMaxViews(maxViews)
 	}
-	if signal.Expiration > 0 {
-		secret.SetExpiration(time.Second * time.Duration(signal.Expiration))
+
+	expiration, err := strconv.ParseUint(r.FormValue("expiration"), 10, 64)
+	switch {
+	case err != nil:
+		if err = ui.Index.ExecuteHTMXSecretError(w, "Invalid expiration value"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		return
+	case expiration > 0:
+		secret.SetExpiration(time.Second * time.Duration(expiration))
 	}
 
 	insert, err := h.db.Store(r.Context(), secret)
-	if err != nil {
+	if err = ui.Index.ExecuteHTMXSecretError(w, "Failed to store secret"); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	normalizedID := strings.ReplaceAll(string(id), "-", "")
-
 	model := ui.CardSecretCreated{
-		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domaine, insert.Key, normalizedID),
+		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domain, insert.Key, normalizedID),
 		ExpiresAt: insert.ExpiresAt,
 	}
-	sb := new(strings.Builder)
-	if err = ui.RenderCardSecretCreated(sb, model); err != nil {
+	if err = ui.Index.ExecuteHTMXSecretCreatedCard(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-	sse.PatchElements(sb.String(), datastar.WithSelectorID("secret-form"), datastar.WithModeReplace())
 }
 
 func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
@@ -100,13 +106,13 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		log.Println(err)
+		h.l.Error("failed to decode encryption key", "error", err)
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 	gid, err := uuid.FromString(parts[1])
 	if err != nil {
-		log.Println(err)
+		h.l.Error("failed to parse uuid", "error", err)
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -119,19 +125,19 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 			Url:      r.URL.Path,
 			NotFound: true,
 		}
-		if err = ui.RenderPageSecret(w, model); err != nil {
-			log.Println(err)
+		if err = ui.Secret.ExecutePage(w, model); err != nil {
+			h.l.Error("failed to execute secret page template", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	case err != nil:
-		log.Println(err)
+		h.l.Error("failed to get secret from database", "error", err)
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 	viewsLeft, err := h.db.ViewsLeft(ctx, id)
 	if err != nil {
-		log.Println(err)
+		h.l.Error("failed to get views left", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -140,14 +146,17 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	csrfToken := csrf.FromContextStringed(r.Context())
+	csrfField := csrf.FromContextFieldName(r.Context())
 	model := ui.PageSecret{
 		Url:        r.URL.Path,
 		Secret:     secret.Value(),
 		Passphrase: secret.Passphrase(),
 		ViewsLeft:  viewsLeft,
+		FormModel:  &ui.FormModel{CsrfField: csrfField, CsrfToken: csrfToken},
 	}
-	if err = ui.RenderPageSecret(w, model); err != nil {
-		log.Println(err)
+	if err = ui.Secret.ExecutePage(w, model); err != nil {
+		h.l.Error("failed to execute secret page template", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -164,13 +173,13 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		log.Println(err)
+		h.l.Error("failed to decode encryption key", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	gid, err := uuid.FromString(parts[1])
 	if err != nil {
-		log.Println(err)
+		h.l.Error("failed to parse uuid", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -182,31 +191,24 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	case err != nil:
-		log.Println(err)
+		h.l.Error("failed to get secret from database", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if secret.Passphrase() != nil && *secret.Passphrase() != "" {
-		var signal struct {
-			Passphrase string `json:"passphrase"`
-		}
-		if err = datastar.ReadSignals(r, &signal); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if signal.Passphrase != *secret.Passphrase() {
-			var errorSignal struct {
-				ErrorPassphrase string `json:"errorPassphrase"`
+		passphrase := r.FormValue("passphrase")
+		if subtle.ConstantTimeCompare([]byte(passphrase), []byte(*secret.Passphrase())) != 1 {
+			if err = ui.Secret.ExecuteHTMXDecryptError(w); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			errorSignal.ErrorPassphrase = "unable to unlock secret"
-			sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-			sse.MarshalAndPatchSignals(errorSignal)
 			return
 		}
 	}
+
 	if err = h.db.Viewed(ctx, id); err != nil {
-		log.Println(err)
+		h.l.Error("failed to mark secret as viewed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -216,47 +218,26 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		Secret:    secret.Value(),
 		ExpiresAt: secret.ExpiresAt(),
 	}
-	sb := new(strings.Builder)
-	if err = ui.RenderCardSecretDecrypted(sb, model); err != nil {
+	if err = ui.Secret.ExecuteHTMXSecretDecrypted(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-	sse.PatchElements(sb.String(), datastar.WithSelectorID("secret-detail"), datastar.WithModeReplace())
+	//sse.PatchElements(sb.String(), datastar.WithSelectorID("secret-detail"), datastar.WithModeReplace())
 }
 
 func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
-	var signal struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := datastar.ReadSignals(r, &signal); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if signal.Username == "" || signal.Password == "" {
-		var errorSignal struct {
-			ErrorUsername string `json:"errorUsername"`
-			ErrorPassword string `json:"errorPassword"`
-		}
-		if signal.Username == "" {
-			errorSignal.ErrorUsername = "username is required"
-		}
-		if signal.Password == "" {
-			errorSignal.ErrorPassword = "password is required"
-		}
-		sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-		sse.MarshalAndPatchSignals(errorSignal)
-		return
-	}
+	username := r.FormValue("username")
+	password := r.FormValue("password")
 
-	if signal.Username != h.cfg.BasicAuthUsername || signal.Password != h.cfg.BasicAuthPassword {
-		var errorSignal struct {
-			ErrorUsername string `json:"errorUsername"`
+	if username == "" || password == "" {
+		if err := ui.Index.ExecuteHTMXAuthError(w); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		errorSignal.ErrorUsername = "wrong username or password"
-		sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-		sse.MarshalAndPatchSignals(errorSignal)
+		return
+	} else if username != h.cfg.BasicAuthUsername || password != h.cfg.BasicAuthPassword {
+		if err := ui.Index.ExecuteHTMXAuthError(w); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -269,14 +250,11 @@ func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
-	sb := new(strings.Builder)
-	if err := ui.RenderCardSecretForm(sb); err != nil {
+
+	csrfToken := csrf.FromContextStringed(r.Context())
+	csrfField := csrf.FromContextFieldName(r.Context())
+	if err := ui.Index.ExecuteHTMXSecretForm(w, ui.FormModel{CsrfToken: csrfToken, CsrfField: csrfField}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r, datastar.WithCompression(datastar.WithServerPriority()))
-	signal.Username = ""
-	signal.Password = ""
-	sse.MarshalAndPatchSignals(signal)
-	sse.PatchElements(sb.String(), datastar.WithSelectorID("login-form"), datastar.WithModeReplace())
 }

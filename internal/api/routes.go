@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -13,13 +14,15 @@ import (
 )
 
 type handlers struct {
+	l   *slog.Logger
 	cfg *config.Config
 	db  *storage.ValkeyStorage
 }
 
-func NewHandlers(cfg *config.Config, client valkey.Client) *handlers {
+func NewHandlers(cfg *config.Config, client valkey.Client, l *slog.Logger) *handlers {
 	return &handlers{
 		cfg: cfg,
+		l:   l,
 		db: storage.NewValkeyStorage(client, func(id storage.ID, key storage.Key) storage.Record[storage.ID, storage.Key] {
 			return secrets.NewSecret(id, key)
 		}),

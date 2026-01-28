@@ -6,7 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -24,18 +24,13 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	decoder := jsontext.NewDecoder(r.Body)
 	if err := json.UnmarshalDecode(decoder, &dto); err != nil {
-		log.Println(err)
+		slog.Error("failed to decode request body", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	id := storage.ID(uuid.Must(uuid.NewV4()).String())
-	key := make([]byte, 32)
-	if err := encryption.GenerateNewKey(key); err != nil {
-		log.Println(err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	key := encryption.GenerateNewKey(32)
 	secret := secrets.NewSecret(id, key)
 	secret.SetValue(dto.Value)
 
@@ -53,7 +48,7 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 
 	insert, err := h.db.Store(ctx, secret)
 	if err != nil {
-		log.Println(err)
+		slog.Error("failed to store secret", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -62,10 +57,10 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	encoder := jsontext.NewEncoder(w)
 	normalizedID := strings.ReplaceAll(string(id), "-", "")
 	if err = json.MarshalEncode(encoder, SecretResponseData{
-		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domaine, insert.Key, normalizedID),
+		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domain, insert.Key, normalizedID),
 		ExpiresAt: insert.ExpiresAt,
 	}); err != nil {
-		log.Println(err)
+		slog.Error("failed to encode response", "error", err)
 		w.Header().Del("Content-Type")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -84,13 +79,13 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		log.Println(err)
+		slog.Error("failed to decode encryption key", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	gid, err := uuid.FromString(parts[1])
 	if err != nil {
-		log.Println(err)
+		slog.Error("failed to parse uuid", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -102,7 +97,7 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	case err != nil:
-		log.Println(err)
+		slog.Error("failed to get secret", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
