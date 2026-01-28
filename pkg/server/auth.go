@@ -8,13 +8,11 @@ import (
 	"github.com/gofrs/uuid/v5"
 )
 
-type BasicAuth struct{}
-
 var authTokens = make(map[string]time.Time)
 
 func NewAuthToken() (token string, expiresAt time.Time) {
 	token = strings.ReplaceAll(uuid.Must(uuid.NewV4()).String(), "-", "")
-	expiresAt = time.Now().Add(time.Hour * 4)
+	expiresAt = time.Now().Add(time.Hour * 12)
 	authTokens[token] = expiresAt
 	return
 }

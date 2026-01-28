@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+@source not "../../assets";
+@source "../../assets/cdn";
+
+@theme {
+    --font-sans: InterVariable, sans-serif;
+    --font-sans--font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+.htmx-request .not-htmx-indicator {
+    display: none;
+}
+
+.htmx-indicator {
+    display: none;
+    opacity: 0;
+    visibility: hidden;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: block;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 200ms ease-in;
+}
+
+html, body {
+    height: 100%; /* Make html and body take 100% of their parent's height */
+    margin: 0; /* Remove default margin from body */
+    padding: 0; /* Remove default padding from body */
+}
+
+/* Optional: If you want content inside the body to fill remaining space using flexbox */
+body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}

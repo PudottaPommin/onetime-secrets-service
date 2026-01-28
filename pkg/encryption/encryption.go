@@ -6,11 +6,10 @@ import (
 	"crypto/rand"
 )
 
-func GenerateNewKey(key []byte) error {
-	if _, err := rand.Read(key); err != nil {
-		return err
-	}
-	return nil
+func GenerateNewKey(len int) []byte {
+	key := make([]byte, len)
+	_, _ = rand.Read(key)
+	return key
 }
 
 func Encrypt(msg, key []byte) ([]byte, error) {
