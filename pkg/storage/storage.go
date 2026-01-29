@@ -25,6 +25,12 @@ type (
 		Value() string
 		SetValue(string)
 		SetPassphrase(string)
+		Files() []*FileRecord
+	}
+
+	FileRecord struct {
+		Name    string `json:"name"`
+		Content []byte `json:"content"`
 	}
 
 	InsertResult[I ~string, K ~[]byte] struct {

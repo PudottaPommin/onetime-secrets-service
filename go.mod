@@ -13,6 +13,7 @@ require (
 
 require (
 	github.com/go-chi/chi/v5 v5.2.4 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 )

@@ -13,13 +13,17 @@ import (
 var cfg = new(config.Config)
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	if err := cfg.Load(); err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	logLvl := slog.LevelWarn
+	if !cfg.IsProd {
+		logLvl = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
+	slog.SetDefault(logger)
 
 	ctx := context.Background()
 	db, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{cfg.DB}})

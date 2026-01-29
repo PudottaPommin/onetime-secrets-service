@@ -2,6 +2,7 @@ package ui
 
 import (
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io"
@@ -17,6 +18,9 @@ var templateFS embed.FS
 var templateFn = template.FuncMap{
 	"csrfInput": func(csrf FormModel) template.HTML {
 		return template.HTML(fmt.Sprintf(`<input type="hidden" name="%s" value="%s">`, csrf.CsrfField, csrf.CsrfToken))
+	},
+	"base64": func(b []byte) string {
+		return base64.StdEncoding.EncodeToString(b)
 	},
 	"asset": func(path string) string {
 		return assets.Url(path)
@@ -75,6 +79,9 @@ func (t secretTemplates) ExecutePage(w io.Writer, data PageSecret) error {
 
 func (t secretTemplates) ExecuteHTMXSecretDecrypted(w io.Writer, data CardSecretDecrypted) error {
 	return t.template.ExecuteTemplate(w, "secret/htmx/secret_decrypted.html", data)
+}
+func (t secretTemplates) ExecuteHTMXSecretDecryptedFiles(w io.Writer, data CardSecretDecrypted) error {
+	return t.template.ExecuteTemplate(w, "secret/htmx/decrypt_files.html", data)
 }
 func (t secretTemplates) ExecuteHTMXDecryptError(w io.Writer) error {
 	return t.template.ExecuteTemplate(w, "secret/htmx/decrypt_error.html", nil)

@@ -18,12 +18,14 @@ type (
 		passphrase *string
 		value      string
 		expiresAt  time.Time
+		files      []*storage.FileRecord
 	}
 
 	secretJson struct {
-		Value     string    `json:"value"`
-		Password  *string   `json:"passphrase,omitempty"`
-		ExpiresAt time.Time `json:"expires_at"`
+		Value     string                `json:"value"`
+		Password  *string               `json:"passphrase,omitempty"`
+		ExpiresAt time.Time             `json:"expires_at"`
+		Files     []*storage.FileRecord `json:"files,omitempty"`
 	}
 )
 
@@ -81,6 +83,14 @@ func (s *Secret) SetPassphrase(passphrase string) {
 	s.passphrase = &passphrase
 }
 
+func (s *Secret) AddFile(name string, content []byte) {
+	s.files = append(s.files, &storage.FileRecord{Name: name, Content: content})
+}
+
+func (s *Secret) Files() []*storage.FileRecord {
+	return s.files
+}
+
 func (s *Secret) seal() {
 	s.expiresAt = time.Now().Add(s.expiration).UTC()
 }
@@ -107,10 +117,12 @@ func (s *Secret) UnmarshalEncrypt(end []byte) error {
 
 func (s Secret) MarshalJSON() ([]byte, error) {
 	s.seal()
-	var d secretJson
-	d.Value = s.value
-	d.Password = s.passphrase
-	d.ExpiresAt = s.expiresAt
+	d := secretJson{
+		Value:     s.value,
+		Password:  s.passphrase,
+		ExpiresAt: s.expiresAt,
+		Files:     s.files,
+	}
 	return json.Marshal(d)
 }
 
@@ -122,5 +134,6 @@ func (s *Secret) UnmarshalJSON(data []byte) error {
 	s.value = d.Value
 	s.passphrase = d.Password
 	s.expiresAt = d.ExpiresAt
+	s.files = d.Files
 	return nil
 }

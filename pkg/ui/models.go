@@ -2,6 +2,8 @@ package ui
 
 import (
 	"time"
+
+	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 )
 
 type (
@@ -29,5 +31,6 @@ type (
 		Url       string
 		Secret    string
 		ExpiresAt time.Time
+		Files     []*storage.FileRecord
 	}
 )

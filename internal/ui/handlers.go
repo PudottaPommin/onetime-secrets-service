@@ -5,6 +5,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +20,7 @@ import (
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/ui"
+	"github.com/valyala/bytebufferpool"
 )
 
 func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +39,10 @@ func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
+	id := storage.ID(uuid.Must(uuid.NewV4()).String())
+	key := encryption.GenerateNewKey(32)
+	secret := secrets.NewSecret(id, key)
+
 	value := r.FormValue("secret")
 	if value == "" {
 		if err := ui.Index.ExecuteHTMXSecretError(w, "Secret is required"); err != nil {
@@ -43,10 +51,6 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	id := storage.ID(uuid.Must(uuid.NewV4()).String())
-	key := encryption.GenerateNewKey(32)
-	secret := secrets.NewSecret(id, key)
 	secret.SetValue(value)
 
 	passphrase := r.FormValue("passphrase")
@@ -76,6 +80,20 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 		return
 	case expiration > 0:
 		secret.SetExpiration(time.Second * time.Duration(expiration))
+	}
+
+	for k, mpf := range r.MultipartForm.File {
+		if k != "files" {
+			continue
+		}
+		for _, file := range mpf {
+			b, err := readFile(file)
+			if err != nil {
+				h.l.Error("failed to read file", slog.Any("err", err), slog.String("name", file.Filename))
+				continue
+			}
+			secret.AddFile(file.Filename, b)
+		}
 	}
 
 	insert, err := h.db.Store(r.Context(), secret)
@@ -217,12 +235,32 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		Url:       r.URL.Path,
 		Secret:    secret.Value(),
 		ExpiresAt: secret.ExpiresAt(),
+		Files:     secret.Files(),
 	}
-	if err = ui.Secret.ExecuteHTMXSecretDecrypted(w, model); err != nil {
+	bb := bytebufferpool.Get()
+	defer bytebufferpool.Put(bb)
+	if err = ui.Secret.ExecuteHTMXSecretDecrypted(bb, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	//sse.PatchElements(sb.String(), datastar.WithSelectorID("secret-detail"), datastar.WithModeReplace())
+
+	sse := server.NewSSEWriter(w, r)
+	if err = sse.WriteHTML(bb.String()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(model.Files) > 0 {
+		bb.Reset()
+		if err = ui.Secret.ExecuteHTMXSecretDecryptedFiles(bb, model); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err = sse.WriteHTML(bb.String()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 }
 
 func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
@@ -257,4 +295,17 @@ func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+func readFile(file *multipart.FileHeader) ([]byte, error) {
+	f, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
