@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
+	"github.com/pudottapommin/golib/pkg/id"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
@@ -29,9 +29,9 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := storage.ID(uuid.Must(uuid.NewV4()).String())
+	sid := storage.ID(id.New().String())
 	key := encryption.GenerateNewKey(32)
-	secret := secrets.NewSecret(id, key)
+	secret := secrets.NewSecret(sid, key)
 	secret.SetValue(dto.Value)
 
 	if dto.Expiration != nil && *dto.Expiration > 30 {
@@ -55,9 +55,9 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	encoder := jsontext.NewEncoder(w)
-	normalizedID := strings.ReplaceAll(string(id), "-", "")
+	normalizedID := strings.ReplaceAll(string(sid), "-", "")
 	if err = json.MarshalEncode(encoder, SecretResponseData{
-		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domain, insert.Key, normalizedID),
+		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Load().Server.Domain, insert.Key, normalizedID),
 		ExpiresAt: insert.ExpiresAt,
 	}); err != nil {
 		slog.Error("failed to encode response", "error", err)
@@ -83,15 +83,9 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	gid, err := uuid.FromString(parts[1])
-	if err != nil {
-		slog.Error("failed to parse uuid", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	id := storage.ID(gid.String())
 
-	secret, err := h.db.Get(ctx, id, encKey)
+	sid := storage.ID(parts[1])
+	secret, err := h.db.Get(ctx, sid, encKey)
 	switch {
 	case errors.Is(err, storage.ErrRecordNotFound) || (err == nil && secret == nil):
 		w.WriteHeader(http.StatusNotFound)

@@ -42,12 +42,15 @@ type (
 	secretTemplates templateBase
 )
 
-var Index = indexTemplates{
-	template: template.Must(
-		template.New("index").
-			Funcs(templateFn).
-			ParseFS(templateFS, "templates/layout.gohtml", "templates/index*.gohtml")),
-}
+var (
+	indexPaths = []string{"templates/layout.gohtml", "templates/index*.gohtml"}
+	Index      = indexTemplates{
+		template: template.Must(
+			template.New("index").
+				Funcs(templateFn).
+				ParseFS(templateFS, indexPaths...)),
+	}
+)
 
 func (t indexTemplates) ExecutePage(w io.Writer, data PageIndex) error {
 	return t.template.ExecuteTemplate(w, "index/page.html", data)
@@ -66,12 +69,15 @@ func (t indexTemplates) ExecuteHTMXAuthError(w io.Writer) error {
 	return t.template.ExecuteTemplate(w, "index/htmx/auth_error.html", nil)
 }
 
-var Secret = secretTemplates{
-	template: template.Must(
-		template.New("secret").
-			Funcs(templateFn).
-			ParseFS(templateFS, "templates/layout.gohtml", "templates/secret*.gohtml")),
-}
+var (
+	secretPaths = []string{"templates/layout.gohtml", "templates/secret*.gohtml"}
+	Secret      = secretTemplates{
+		template: template.Must(
+			template.New("secret").
+				Funcs(templateFn).
+				ParseFS(templateFS, secretPaths...)),
+	}
+)
 
 func (t secretTemplates) ExecutePage(w io.Writer, data PageSecret) error {
 	return t.template.ExecuteTemplate(w, "secret/page.html", data)
@@ -87,17 +93,17 @@ func (t secretTemplates) ExecuteHTMXDecryptError(w io.Writer) error {
 	return t.template.ExecuteTemplate(w, "secret/htmx/decrypt_error.html", nil)
 }
 
-func ReloadTemplates() {
+func Recompile() {
 	fs := os.DirFS("pkg/ui")
 
 	Index.template = template.Must(
 		template.New("index").
 			Funcs(templateFn).
-			ParseFS(fs, "templates/layout.gohtml", "templates/index*.gohtml"))
+			ParseFS(fs, indexPaths...))
 
 	Secret.template = template.Must(
 		template.New("index").
 			Funcs(templateFn).
-			ParseFS(fs, "templates/layout.gohtml", "templates/secret*.gohtml"))
+			ParseFS(fs, secretPaths...))
 
 }

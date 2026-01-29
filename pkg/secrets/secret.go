@@ -1,11 +1,8 @@
 package secrets
 
 import (
-	"encoding/json/v2"
-	"fmt"
 	"time"
 
-	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 )
 
@@ -20,23 +17,14 @@ type (
 		expiresAt  time.Time
 		files      []*storage.FileRecord
 	}
-
-	secretJson struct {
-		Value     string                `json:"value"`
-		Password  *string               `json:"passphrase,omitempty"`
-		ExpiresAt time.Time             `json:"expires_at"`
-		Files     []*storage.FileRecord `json:"files,omitempty"`
-	}
 )
 
 var (
 	_ storage.Record[storage.ID, storage.Key] = (*Secret)(nil)
-	_ encryption.Marshaler                    = (*Secret)(nil)
-	_ encryption.Unmarshaler                  = (*Secret)(nil)
 )
 
 func NewSecret(id storage.ID, key storage.Key) *Secret {
-	return &Secret{id: id, key: key, maxViews: 1, expiration: time.Minute * 30}
+	return &Secret{id: id, key: key, maxViews: 1, expiration: time.Minute * 30, files: make([]*storage.FileRecord, 0)}
 }
 
 func (s *Secret) ID() storage.ID {
@@ -91,49 +79,13 @@ func (s *Secret) Files() []*storage.FileRecord {
 	return s.files
 }
 
-func (s *Secret) seal() {
+func (s *Secret) Seal() {
 	s.expiresAt = time.Now().Add(s.expiration).UTC()
 }
 
-func (s Secret) MarshalEncrypt() ([]byte, error) {
-	bytes, err := s.MarshalJSON()
-	if err != nil {
-		return nil, fmt.Errorf("secret: error marshaling secret: %w", err)
-	}
-	enc, err := encryption.Encrypt(bytes, s.key)
-	if err != nil {
-		return nil, fmt.Errorf("secret: error encrypting secret: %w", err)
-	}
-	return enc, nil
-}
-
-func (s *Secret) UnmarshalEncrypt(end []byte) error {
-	dec, err := encryption.Decrypt(end, s.key)
-	if err != nil {
-		return fmt.Errorf("secret: error decrypting secret: %w", err)
-	}
-	return s.UnmarshalJSON([]byte(dec))
-}
-
-func (s Secret) MarshalJSON() ([]byte, error) {
-	s.seal()
-	d := secretJson{
-		Value:     s.value,
-		Password:  s.passphrase,
-		ExpiresAt: s.expiresAt,
-		Files:     s.files,
-	}
-	return json.Marshal(d)
-}
-
-func (s *Secret) UnmarshalJSON(data []byte) error {
-	var d secretJson
-	if err := json.Unmarshal(data, &d); err != nil {
-		return err
-	}
-	s.value = d.Value
-	s.passphrase = d.Password
-	s.expiresAt = d.ExpiresAt
-	s.files = d.Files
-	return nil
+func (s *Secret) Reinit(value string, passphrase *string, expiresAt time.Time, files []*storage.FileRecord) {
+	s.value = value
+	s.passphrase = passphrase
+	s.expiresAt = expiresAt
+	s.files = files
 }

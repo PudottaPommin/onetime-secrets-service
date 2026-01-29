@@ -9,10 +9,21 @@ type (
 	ID  string
 	Key []byte
 
+	storageRecord struct {
+		ID         ID
+		Value      string
+		Passphrase *string
+		ExpiresAt  time.Time
+		Files      []*FileRecord
+	}
+
 	Storage[I ~string, K ~[]byte] interface {
 		Store(context.Context, Record[I, K]) (*InsertResult[I, K], error)
 		Get(context.Context, ID, K) (Record[I, K], error)
 		Burn(context.Context, ID) error
+
+		ViewsLeft(context.Context, ID) (uint64, error)
+		Viewed(ctx context.Context, id ID) error
 	}
 
 	Record[I ~string, K ~[]byte] interface {
@@ -26,6 +37,9 @@ type (
 		SetValue(string)
 		SetPassphrase(string)
 		Files() []*FileRecord
+
+		Reinit(value string, passphrase *string, expiresAt time.Time, files []*FileRecord)
+		Seal()
 	}
 
 	FileRecord struct {

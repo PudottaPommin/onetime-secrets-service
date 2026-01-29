@@ -1,67 +1,58 @@
 package api
 
 import (
-	"encoding/base64"
 	"log/slog"
 	"net/http"
-	"strings"
+	"sync/atomic"
 
 	"github.com/alexedwards/flow"
 	"github.com/pudottapommin/onetime-secrets-service/config"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 	"github.com/valkey-io/valkey-go"
 )
 
 type handlers struct {
 	l   *slog.Logger
-	cfg *config.Config
-	db  *storage.ValkeyStorage
+	cfg *atomic.Pointer[config.Config]
+	db  storage.Storage[storage.ID, storage.Key]
 }
 
-func NewHandlers(cfg *config.Config, client valkey.Client, l *slog.Logger) *handlers {
+func NewHandlers(cfg *atomic.Pointer[config.Config], client valkey.Client, l *slog.Logger) *handlers {
+	encryptor, _ := storage.NewDefaultEncryptor(cfg.Load().SecretKey)
 	return &handlers{
 		cfg: cfg,
 		l:   l,
-		db: storage.NewValkeyStorage(client, func(id storage.ID, key storage.Key) storage.Record[storage.ID, storage.Key] {
-			return secrets.NewSecret(id, key)
-		}),
+		db: storage.NewValkey(client,
+			encryptor,
+			func(id storage.ID, key storage.Key) storage.Record[storage.ID, storage.Key] {
+				return secrets.NewSecret(id, key)
+			}),
 	}
 }
 
 func (h *handlers) AddHandlers(e *flow.Mux) {
 	e.Group(func(g *flow.Mux) {
-		if h.cfg.BasicAuthEnabled {
-			g.Use(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if r.URL.Path == "/api/create" && r.Method == "POST" {
-						authHeader := r.Header.Get("Authorization")
-						if authHeader == "" {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
-
-						if !strings.HasPrefix(authHeader, "Basic ") {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
-
-						payload, err := base64.StdEncoding.DecodeString(authHeader[6:])
-						if err != nil {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
-
-						pair := strings.SplitN(string(payload), ":", 2)
-						if len(pair) != 2 || pair[0] != h.cfg.BasicAuthUsername || pair[1] != h.cfg.BasicAuthPassword {
-							w.WriteHeader(http.StatusUnauthorized)
-							return
-						}
-					}
+		g.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cfg := h.cfg.Load()
+				if !cfg.Auth.IsEnabled {
 					next.ServeHTTP(w, r)
-				})
+					return
+				}
+
+				switch r.Method {
+				case http.MethodPost:
+					if err := server.AuthValidateHeader(r, cfg.Auth.Username, cfg.Auth.Password); err != nil {
+						w.WriteHeader(http.StatusUnauthorized)
+						return
+					}
+				}
+				next.ServeHTTP(w, r)
 			})
-		}
+		})
+
 		g.HandleFunc("/api/create", h.secretPUT, "PUT")
 	})
 	e.HandleFunc("/api/:value", h.secretGET, "GET")

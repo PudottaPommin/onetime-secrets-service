@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/alexedwards/flow"
 	"github.com/pudottapommin/onetime-secrets-service/config"
@@ -15,40 +16,46 @@ import (
 
 type handlers struct {
 	l   *slog.Logger
-	cfg *config.Config
-	db  *storage.ValkeyStorage
+	cfg *atomic.Pointer[config.Config]
+	db  storage.Storage[storage.ID, storage.Key]
 }
 
-func NewHandlers(cfg *config.Config, client valkey.Client, l *slog.Logger) *handlers {
+func NewHandlers(cfg *atomic.Pointer[config.Config], client valkey.Client, l *slog.Logger) *handlers {
+	encryptor, _ := storage.NewDefaultEncryptor(cfg.Load().SecretKey)
 	return &handlers{
 		cfg: cfg,
 		l:   l,
-		db: storage.NewValkeyStorage(client, func(id storage.ID, key storage.Key) storage.Record[storage.ID, storage.Key] {
-			return secrets.NewSecret(id, key)
-		}),
+		db: storage.NewValkey(client,
+			encryptor,
+			func(id storage.ID, key storage.Key) storage.Record[storage.ID, storage.Key] {
+				return secrets.NewSecret(id, key)
+			}),
 	}
 }
 
 func (h *handlers) AddHandlers(e *flow.Mux) {
 	e.Group(func(g *flow.Mux) {
-		if h.cfg.BasicAuthEnabled {
-			g.Use(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					isAuthenticated := true
-					if r.URL.Path == "/" {
-						isAuthenticated = false
-						if cv, err := r.Cookie("onetimesecretsecret"); err == nil {
-							if err = cv.Valid(); err == nil {
-								isAuthenticated = server.AuthTokenValid(cv.Value)
-							}
-						}
-
-					}
-					r = r.WithContext(context.WithValue(r.Context(), "isAuthenticated", isAuthenticated))
+		g.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cfg := h.cfg.Load()
+				if !cfg.Auth.IsEnabled {
 					next.ServeHTTP(w, r)
-				})
+					return
+				}
+
+				switch r.URL.Path {
+				case "/":
+					isAuthenticated := true
+					if err := server.AuthValidateToken(r); err != nil {
+						isAuthenticated = false
+					}
+					r = r.WithContext(context.WithValue(r.Context(), server.AuthContextKey, isAuthenticated))
+				}
+
+				next.ServeHTTP(w, r)
 			})
-		}
+		})
+
 		g.HandleFunc("/authenticate", h.authenticatePOST, "post")
 		g.HandleFunc("/", h.indexPUT, "PUT")
 		g.HandleFunc("/", h.indexGET, "GET")

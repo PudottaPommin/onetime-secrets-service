@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/alexedwards/flow"
@@ -23,12 +24,14 @@ func (s *Server) E() *flow.Mux { return s.e }
 
 func (s *Server) Run(addr string) (err error) {
 	s.srv = &http.Server{Addr: addr, Handler: s.e}
-	return s.srv.ListenAndServe()
-}
 
-func (s *Server) Shutdown(ctx context.Context) (err error) {
-	if s.srv == nil {
+	go func() {
+		<-s.ctx.Done()
+		_ = s.srv.Shutdown(context.Background())
+	}()
+
+	if err = s.srv.ListenAndServe(); errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
-	return s.srv.Shutdown(ctx)
+	return err
 }
