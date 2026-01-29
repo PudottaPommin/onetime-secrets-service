@@ -2,12 +2,11 @@
   <configuration default="false" name="App" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="secret-notes" />
     <working_directory value="$PROJECT_DIR$" />
-    <go_parameters value="-tags bindata" />
     <envs>
-      <env name="OSS_PROD" value="true" />
-      <env name="OSS_DOMAIN" value="https://dev.oss.local" />
-      <env name="OSS_CSRF_HASH_KEY" value="LyKHqS3vXR7zchb6rNPoze5Vt3MwKHWByihzWneQD1Q=" />
       <env name="OSS_CSRF_BLOCK_KEY" value="sT4oHSol5eTXnnkNdZiazkDEes7bA2ijnrBmQrpkZ7w=" />
+      <env name="OSS_CSRF_HASH_KEY" value="LyKHqS3vXR7zchb6rNPoze5Vt3MwKHWByihzWneQD1Q=" />
+      <env name="OSS_DOMAIN" value="https://dev.oss.local" />
+      <env name="OSS_PROD" value="false" />
     </envs>
     <kind value="PACKAGE" />
     <package value="github.com/pudottapommin/onetime-secrets-service/cmd/server" />

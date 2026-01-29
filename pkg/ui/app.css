@@ -7,6 +7,87 @@
     --font-sans--font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
+@layer base {
+    h1 {
+        font-size: var(--text-4xl);
+        line-height: var(--text-4xl--line-height);
+        font-weight: var(--font-weight-medium);
+    }
+
+    label {
+    /*    block text-sm/6 font-medium text-gray-900 dark:text-white*/
+        display: block;
+        font-weight: var(--font-weight-medium);
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+        color: var(--color-gray-900);
+
+        @variant dark {
+            color: var(--color-white);
+        }
+    }
+}
+
+@layer components {
+    .card {
+        margin: 0 auto;
+        border-radius: var(--radius-lg);
+        padding: calc(var(--spacing)*8);
+        box-shadow: var(--shadow-lg);
+
+        @variant @lg {
+            max-width: var(--container-lg);
+        }
+        @variant dark {
+            @apply bg-gray-900;
+        }
+
+        .card-header {
+            padding-bottom: calc(var(--spacing)*2);
+            border-bottom-width: 1px;
+            border-color: var(--color-gray-200);
+            border-style: dashed;
+
+            @variant dark {
+                border-color: var(--color-gray-700);
+            }
+        }
+    }
+
+    .btn-primary {
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: var(--radius-md);
+        background-color: var(--color-indigo-600);
+        padding: calc(var(--spacing) *2) calc(var(--spacing) *3);
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+        font-weight: var(--font-weight-semibold);
+        color: var(--color-white);
+        box-shadow: var(--shadow-xs);
+
+        @variant hover {
+            background-color: var(--color-indigo-500);
+        }
+        @variant focus-visible {
+            outline-width: 2px;
+            outline-offset: 2px;
+            outline-color: var(--color-indigo-600);
+        }
+        @variant dark {
+            background-color: var(--color-indigo-500);
+            box-shadow: none;
+            @variant hover {
+                background-color: var(--color-indigo-400);
+            }
+            @variant focus-visible {
+                outline-color: var(--color-indigo-500);
+            }
+        }
+    }
+}
+
 .htmx-request .not-htmx-indicator {
     display: none;
 }
