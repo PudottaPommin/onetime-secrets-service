@@ -1,4 +1,4 @@
-FROM --platform=${BUILDPLATFORM} gcr.io/distroless/static-debian12:nonroot
+FROM --platform=${BUILDPLATFORM} gcr.io/distroless/static-debian13:nonroot
 ARG TARGETPLATFORM
 USER nonroot:nonroot
 COPY $TARGETPLATFORM/server /usr/bin
