@@ -4,15 +4,17 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"errors"
+	"io"
 )
 
 type Encryptor interface {
-	Encrypt(data []byte) ([]byte, error)
-	Decrypt(data []byte) ([]byte, error)
+	EncryptStream(w io.Writer) (io.Writer, error)
+	DecryptStream(r io.Reader) (io.Reader, error)
+	//Encrypt(data []byte) ([]byte, error)
+	//Decrypt(data []byte) ([]byte, error)
 }
 
-type encryptor struct {
+type aesEncryptor struct {
 	block cipher.Block
 }
 
@@ -21,30 +23,49 @@ func NewDefaultEncryptor(key []byte) (Encryptor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &encryptor{block: block}, nil
+	return &aesEncryptor{block: block}, nil
 }
 
-func (e encryptor) Encrypt(src []byte) ([]byte, error) {
+func (e aesEncryptor) EncryptStream(w io.Writer) (io.Writer, error) {
 	iv := GenerateRandomKey(e.block.BlockSize())
-	ctrXOR(e.block, iv, src, src)
-	return append(iv, src...), nil
-}
-
-func (e encryptor) Decrypt(src []byte) ([]byte, error) {
-	size := e.block.BlockSize()
-	if len(src) < size {
-		return nil, errors.New("[Decrypt] block size is greater than src length")
+	if _, err := w.Write(iv); err != nil {
+		return nil, err
 	}
-	iv := src[:size]
-	src = src[size:]
-	ctrXOR(e.block, iv, src, src)
-	return src, nil
+	stream := cipher.NewCTR(e.block, iv)
+	return &cipher.StreamWriter{S: stream, W: w}, nil
 }
 
-func ctrXOR(block cipher.Block, iv, src, dst []byte) {
-	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(src, dst)
+func (e aesEncryptor) DecryptStream(r io.Reader) (io.Reader, error) {
+	iv := make([]byte, e.block.BlockSize())
+	if _, err := io.ReadFull(r, iv); err != nil {
+		return nil, err
+	}
+	stream := cipher.NewCTR(e.block, iv)
+	return &cipher.StreamReader{S: stream, R: r}, nil
 }
+
+//
+//func (e aesEncryptor) Decrypt(src []byte) ([]byte, error) {
+//	size := e.block.BlockSize()
+//	if len(src) < size {
+//		return nil, errors.New("[Decrypt] block size is greater than src length")
+//	}
+//	iv := src[:size]
+//	src = src[size:]
+//	ctrXOR(e.block, iv, src, src)
+//	return src, nil
+//}
+//
+//func (e aesEncryptor) Encrypt(src []byte) ([]byte, error) {
+//	iv := GenerateRandomKey(e.block.BlockSize())
+//	ctrXOR(e.block, iv, src, src)
+//	return append(iv, src...), nil
+//}
+
+//func ctrXOR(block cipher.Block, iv, src, dst []byte) {
+//	stream := cipher.NewCTR(block, iv)
+//	stream.XORKeyStream(dst, src)
+//}
 
 func GenerateRandomKey(size int) []byte {
 	key := make([]byte, size)

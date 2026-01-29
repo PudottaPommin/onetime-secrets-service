@@ -21,7 +21,10 @@ type handlers struct {
 }
 
 func NewHandlers(cfg *atomic.Pointer[config.Config], client valkey.Client, l *slog.Logger) *handlers {
-	encryptor, _ := storage.NewDefaultEncryptor(cfg.Load().SecretKey)
+	var encryptor storage.Encryptor
+	if cfg.Load().SecretKey != nil {
+		encryptor, _ = storage.NewDefaultEncryptor(cfg.Load().SecretKey)
+	}
 	return &handlers{
 		cfg: cfg,
 		l:   l,

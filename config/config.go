@@ -37,6 +37,9 @@ func (c *Config) Load() error {
 	return env.ParseWithOptions(c, env.Options{
 		FuncMap: map[reflect.Type]env.ParserFunc{
 			reflect.TypeOf([]byte{}): func(val string) (any, error) {
+				if val == "" {
+					return nil, nil
+				}
 				return base64.StdEncoding.DecodeString(val)
 			},
 		},

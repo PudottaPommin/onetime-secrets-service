@@ -3,9 +3,11 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/valkey-io/valkey-go"
+	"github.com/valyala/bytebufferpool"
 )
 
 type valkeyStorage struct {
@@ -25,6 +27,7 @@ func NewValkey(client valkey.Client, encryptor Encryptor, generator func(ID, Key
 }
 
 func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*InsertResult[ID, Key], error) {
+	var err error
 	record.Seal()
 	sr := storageRecord{
 		ID:         record.ID(),
@@ -34,30 +37,34 @@ func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*Ins
 		Files:      record.Files(),
 	}
 
-	buf, err := s.encoder.Encode(sr)
-	if err != nil {
-		return nil, fmt.Errorf("valkeya: error encoding record: %w", err)
-	}
+	var encryptor Encryptor
 	if s.encryptor != nil {
-		buf, err = s.encryptor.Encrypt(buf)
+		encryptor = s.encryptor
+	} else {
+		encryptor, err = NewDefaultEncryptor(record.Key())
 		if err != nil {
-			return nil, fmt.Errorf("valkeya: error encrypting record: %w", err)
+			return nil, fmt.Errorf("valkeya: error creating default encryptor: %w", err)
 		}
+	}
+
+	buf := bytebufferpool.Get()
+	defer bytebufferpool.Put(buf)
+
+	ew, err := encryptor.EncryptStream(buf)
+	if err != nil {
+		return nil, fmt.Errorf("valkeya: error creating encrypt stream: %w", err)
+	}
+
+	if err = s.encoder.EncodeStream(ew, sr); err != nil {
+		return nil, fmt.Errorf("valkeya: error encoding record: %w", err)
 	}
 
 	expiresAt := time.Now().Add(record.Expiration()).UTC()
 	rk, rck := s.generateStorageKeys(record.ID())
-	c1 := s.client.B().Set().Key(rck).
-		Value(fmt.Sprintf("%d", record.MaxViews())).
-		Nx().
-		Ex(record.Expiration()).
-		Build()
-	c2 := s.client.B().Set().Key(rk).Value(valkey.BinaryString(buf)).Nx().Ex(record.Expiration()).Build()
+	c1 := s.client.B().Set().Key(rck).Value(fmt.Sprintf("%d", record.MaxViews())).Nx().Ex(record.Expiration()).Build()
+	c2 := s.client.B().Set().Key(rk).Value(valkey.BinaryString(buf.Bytes())).Nx().Ex(record.Expiration()).Build()
 
-	for _, result := range s.client.DoMulti(ctx,
-		c1,
-		c2,
-	) {
+	for _, result := range s.client.DoMulti(ctx, c1, c2) {
 		if result.Error() != nil {
 			return nil, fmt.Errorf("valkeya: error storing record: %w", result.Error())
 		}
@@ -78,23 +85,32 @@ func (s *valkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 		return nil, s.Burn(ctx, id)
 	}
 
-	buf, err := s.client.Do(ctx, s.client.B().Get().Key(rk).Build()).AsBytes()
-	if err != nil {
-		if valkey.IsValkeyNil(err) {
-			return nil, ErrRecordNotFound
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		c := s.client.DoStream(ctx, s.client.B().Get().Key(rk).Build())
+		if _, err := c.WriteTo(pw); err != nil {
+			_ = pw.CloseWithError(fmt.Errorf("valkeya: error reading message: %w", err))
 		}
-		return nil, fmt.Errorf("valkeya: error getting message: %w", err)
+	}()
+
+	var encryptor Encryptor
+	if s.encryptor != nil {
+		encryptor = s.encryptor
+	} else {
+		encryptor, err = NewDefaultEncryptor(k)
+		if err != nil {
+			return nil, fmt.Errorf("valkeya: error creating default encryptor: %w", err)
+		}
 	}
 
-	if s.encryptor != nil {
-		buf, err = s.encryptor.Decrypt(buf)
-		if err != nil {
-			return nil, fmt.Errorf("valkeya: error decrypting message: %w", err)
-		}
+	dr, err := encryptor.DecryptStream(pr)
+	if err != nil {
+		return nil, fmt.Errorf("valkeya: error decrypting message: %w", err)
 	}
 
 	var sr storageRecord
-	if err = s.encoder.Decode(buf, &sr); err != nil {
+	if err = s.encoder.DecodeStream(dr, &sr); err != nil {
 		return nil, fmt.Errorf("valkeya: error decoding message: %w", err)
 	}
 	record := s.generator(sr.ID, k)
