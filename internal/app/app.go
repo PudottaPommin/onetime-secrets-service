@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"strings"
 	"sync/atomic"
 
@@ -68,6 +69,16 @@ func (a *App) Run() (err error) {
 	api.NewHandlers(a.cfg, a.db, a.l).AddHandlers(a.E())
 	if cfg.Server.UI {
 		ui.NewHandlers(a.cfg, a.db, a.l).AddHandlers(a.E())
+	}
+
+	if cfg.Pprof.IsEnabled {
+		a.E().Group(func(r *flow.Mux) {
+			r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline, http.MethodGet)
+			r.HandleFunc("/debug/pprof/profile", pprof.Profile, http.MethodGet)
+			r.HandleFunc("/debug/pprof/symbol", pprof.Symbol, http.MethodGet)
+			r.HandleFunc("/debug/pprof/trace", pprof.Trace, http.MethodGet)
+			r.HandleFunc("/debug/pprof/...", pprof.Index, http.MethodGet)
+		})
 	}
 
 	if cfg.Auth.IsEnabled {

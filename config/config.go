@@ -31,6 +31,10 @@ type Config struct {
 		HashKey   []byte `env:"HASH_KEY"`
 		BlockKey  []byte `env:"BLOCK_KEY"`
 	} `envPrefix:"OSS_CSRF_"`
+
+	Pprof struct {
+		IsEnabled bool `env:"ENABLED" envDefault:"false"`
+	} `envPrefix:"OSS_PPROF_"`
 }
 
 func (c *Config) Load() error {

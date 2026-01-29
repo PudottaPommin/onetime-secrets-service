@@ -92,7 +92,7 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 			secret.AddFile(file.Filename, b)
 		}
 	}
-	
+
 	insert, err := h.db.Store(r.Context(), secret)
 	if err = ui.Index.ExecuteHTMXSecretError(w, "Failed to store secret"); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -120,7 +120,7 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		h.l.Error("failed to decode encryption key", "error", err)
+		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -182,7 +182,7 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		h.l.Error("failed to decode encryption key", "error", err)
+		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

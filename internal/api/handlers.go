@@ -79,7 +79,7 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(value, "-")
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		slog.Error("failed to decode encryption key", "error", err)
+		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
