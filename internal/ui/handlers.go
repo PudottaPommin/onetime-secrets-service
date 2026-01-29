@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
 	"github.com/pudottapommin/golib/http/middleware/csrf"
+	"github.com/pudottapommin/golib/pkg/id"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
@@ -24,10 +24,7 @@ import (
 )
 
 func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
-	isAuthenticated, ok := r.Context().Value("isAuthenticated").(bool)
-	if !ok {
-		isAuthenticated = true
-	}
+	isAuthenticated := r.Context().Value(server.AuthContextKey).(bool)
 
 	csrfToken := csrf.FromContextStringed(r.Context())
 	csrfField := csrf.FromContextFieldName(r.Context())
@@ -39,9 +36,9 @@ func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
-	id := storage.ID(uuid.Must(uuid.NewV4()).String())
+	sid := storage.ID(id.New().String())
 	key := encryption.GenerateNewKey(32)
-	secret := secrets.NewSecret(id, key)
+	secret := secrets.NewSecret(sid, key)
 
 	value := r.FormValue("secret")
 	if value == "" {
@@ -83,7 +80,7 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for k, mpf := range r.MultipartForm.File {
-		if k != "files" {
+		if k != "attachments" {
 			continue
 		}
 		for _, file := range mpf {
@@ -95,16 +92,15 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 			secret.AddFile(file.Filename, b)
 		}
 	}
-
+	
 	insert, err := h.db.Store(r.Context(), secret)
 	if err = ui.Index.ExecuteHTMXSecretError(w, "Failed to store secret"); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	normalizedID := strings.ReplaceAll(string(id), "-", "")
 	model := ui.CardSecretCreated{
-		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Domain, insert.Key, normalizedID),
+		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Load().Server.Domain, insert.Key, sid),
 		ExpiresAt: insert.ExpiresAt,
 	}
 	if err = ui.Index.ExecuteHTMXSecretCreatedCard(w, model); err != nil {
@@ -128,20 +124,17 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	gid, err := uuid.FromString(parts[1])
-	if err != nil {
-		h.l.Error("failed to parse uuid", "error", err)
-		http.Redirect(w, r, "/", http.StatusFound)
-		return
-	}
 
-	id := storage.ID(gid.String())
-	secret, err := h.db.Get(ctx, id, encKey)
+	csrfToken := csrf.FromContextStringed(r.Context())
+	csrfField := csrf.FromContextFieldName(r.Context())
+	sid := storage.ID(parts[1])
+	secret, err := h.db.Get(ctx, sid, encKey)
 	switch {
 	case errors.Is(err, storage.ErrRecordNotFound) || (err == nil && secret == nil):
 		model := ui.PageSecret{
-			Url:      r.URL.Path,
-			NotFound: true,
+			Url:       r.URL.Path,
+			NotFound:  true,
+			FormModel: &ui.FormModel{CsrfField: csrfField, CsrfToken: csrfToken},
 		}
 		if err = ui.Secret.ExecutePage(w, model); err != nil {
 			h.l.Error("failed to execute secret page template", "error", err)
@@ -153,7 +146,7 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	viewsLeft, err := h.db.ViewsLeft(ctx, id)
+	viewsLeft, err := h.db.ViewsLeft(ctx, sid)
 	if err != nil {
 		h.l.Error("failed to get views left", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -164,8 +157,6 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	csrfToken := csrf.FromContextStringed(r.Context())
-	csrfField := csrf.FromContextFieldName(r.Context())
 	model := ui.PageSecret{
 		Url:        r.URL.Path,
 		Secret:     secret.Value(),
@@ -195,15 +186,8 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	gid, err := uuid.FromString(parts[1])
-	if err != nil {
-		h.l.Error("failed to parse uuid", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	id := storage.ID(gid.String())
-	secret, err := h.db.Get(ctx, id, encKey)
+	sid := storage.ID(parts[1])
+	secret, err := h.db.Get(ctx, sid, encKey)
 	switch {
 	case errors.Is(err, storage.ErrRecordNotFound) || (err == nil && secret == nil):
 		w.WriteHeader(http.StatusNotFound)
@@ -225,7 +209,7 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err = h.db.Viewed(ctx, id); err != nil {
+	if err = h.db.Viewed(ctx, sid); err != nil {
 		h.l.Error("failed to mark secret as viewed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -267,27 +251,20 @@ func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
+	cfg := h.cfg.Load()
 	if username == "" || password == "" {
 		if err := ui.Index.ExecuteHTMXAuthError(w); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
-	} else if username != h.cfg.BasicAuthUsername || password != h.cfg.BasicAuthPassword {
+	} else if subtle.ConstantTimeCompare([]byte(username), []byte(cfg.Auth.Username)) != 1 || subtle.ConstantTimeCompare([]byte(password), []byte(cfg.Auth.Password)) != 1 {
 		if err := ui.Index.ExecuteHTMXAuthError(w); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
 
-	token, _ := server.NewAuthToken()
-	http.SetCookie(w, &http.Cookie{
-		Name:     "onetimesecretsecret",
-		Value:    token,
-		Path:     "/",
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
+	server.AuthSetCookie(w)
 
 	csrfToken := csrf.FromContextStringed(r.Context())
 	csrfField := csrf.FromContextFieldName(r.Context())

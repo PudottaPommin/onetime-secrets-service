@@ -2,62 +2,72 @@ package storage
 
 import (
 	"context"
-	"encoding/hex"
-	"encoding/json/v2"
 	"fmt"
 	"time"
 
-	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/valkey-io/valkey-go"
 )
 
-var _ Storage[ID, Key] = (*ValkeyStorage)(nil)
-
-type ValkeyStorage struct {
+type valkeyStorage struct {
 	client    valkey.Client
 	generator func(ID, Key) Record[ID, Key]
+	encoder   Encoder
+	encryptor Encryptor
 }
 
-func NewValkeyStorage(client valkey.Client, generator func(ID, Key) Record[ID, Key]) *ValkeyStorage {
-	return &ValkeyStorage{client: client, generator: generator}
-}
-
-func (s *ValkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*InsertResult[ID, Key], error) {
-	var v string
-	switch t := record.(type) {
-	case encryption.Marshaler:
-		bytes, err := t.MarshalEncrypt()
-		if err != nil {
-			return nil, fmt.Errorf("valkeya: error marshaling record: %w", err)
-		}
-		v = hex.EncodeToString(bytes)
-	case json.Marshaler:
-		bytes, err := t.MarshalJSON()
-		if err != nil {
-			return nil, fmt.Errorf("valkeya: error marshaling record: %w", err)
-		}
-		v = string(bytes)
+func NewValkey(client valkey.Client, encryptor Encryptor, generator func(ID, Key) Record[ID, Key]) Storage[ID, Key] {
+	return &valkeyStorage{
+		encoder:   &GobEncoder{},
+		encryptor: encryptor,
+		client:    client,
+		generator: generator,
 	}
-	expiresAt := time.Now().Add(record.Expiration()).UTC()
+}
 
-	recordKey, recordCounterKey := s.generateStorageKeys(record.ID())
+func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*InsertResult[ID, Key], error) {
+	record.Seal()
+	sr := storageRecord{
+		ID:         record.ID(),
+		Value:      record.Value(),
+		Passphrase: record.Passphrase(),
+		ExpiresAt:  record.ExpiresAt(),
+		Files:      record.Files(),
+	}
+
+	buf, err := s.encoder.Encode(sr)
+	if err != nil {
+		return nil, fmt.Errorf("valkeya: error encoding record: %w", err)
+	}
+	if s.encryptor != nil {
+		buf, err = s.encryptor.Encrypt(buf)
+		if err != nil {
+			return nil, fmt.Errorf("valkeya: error encrypting record: %w", err)
+		}
+	}
+
+	expiresAt := time.Now().Add(record.Expiration()).UTC()
+	rk, rck := s.generateStorageKeys(record.ID())
+	c1 := s.client.B().Set().Key(rck).
+		Value(fmt.Sprintf("%d", record.MaxViews())).
+		Nx().
+		Ex(record.Expiration()).
+		Build()
+	c2 := s.client.B().Set().Key(rk).Value(valkey.BinaryString(buf)).Nx().Ex(record.Expiration()).Build()
+
 	for _, result := range s.client.DoMulti(ctx,
-		s.client.B().Set().Key(recordCounterKey).
-			Value(fmt.Sprintf("%d", record.MaxViews())).
-			Nx().Ex(record.Expiration()).
-			Build(),
-		s.client.B().Set().Key(recordKey).Value(v).Nx().Ex(record.Expiration()).Build(),
+		c1,
+		c2,
 	) {
 		if result.Error() != nil {
-			return nil, result.Error()
+			return nil, fmt.Errorf("valkeya: error storing record: %w", result.Error())
 		}
 	}
 	return newInsertResult(record.ID(), record.Key(), expiresAt), nil
 }
 
-func (s *ValkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key], error) {
-	recordKey, recordCounterKey := s.generateStorageKeys(id)
-	counter, err := s.client.Do(ctx, s.client.B().Get().Key(recordCounterKey).Build()).AsUint64()
+func (s *valkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key], error) {
+	rk, rck := s.generateStorageKeys(id)
+	counter, err := s.client.Do(ctx, s.client.B().Get().Key(rck).Build()).AsUint64()
 	if err != nil {
 		if valkey.IsValkeyNil(err) {
 			return nil, ErrRecordNotFound
@@ -68,7 +78,7 @@ func (s *ValkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 		return nil, s.Burn(ctx, id)
 	}
 
-	message, err := s.client.Do(ctx, s.client.B().Get().Key(recordKey).Build()).ToString()
+	buf, err := s.client.Do(ctx, s.client.B().Get().Key(rk).Build()).AsBytes()
 	if err != nil {
 		if valkey.IsValkeyNil(err) {
 			return nil, ErrRecordNotFound
@@ -76,28 +86,23 @@ func (s *ValkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 		return nil, fmt.Errorf("valkeya: error getting message: %w", err)
 	}
 
-	record := s.generator(id, k)
-	switch t := record.(type) {
-	case encryption.Unmarshaler:
-		v, err := hex.DecodeString(message)
+	if s.encryptor != nil {
+		buf, err = s.encryptor.Decrypt(buf)
 		if err != nil {
-			return nil, fmt.Errorf("valkeya: error decoding message: %w", err)
-		}
-		if err = t.UnmarshalEncrypt(v); err != nil {
-			return nil, fmt.Errorf("valkeya: error decrypting message: %w", err)
-		}
-	case json.Unmarshaler:
-		if err != nil {
-			return nil, fmt.Errorf("valkeya: error decoding message: %w", err)
-		}
-		if err = t.UnmarshalJSON([]byte(message)); err != nil {
 			return nil, fmt.Errorf("valkeya: error decrypting message: %w", err)
 		}
 	}
+
+	var sr storageRecord
+	if err = s.encoder.Decode(buf, &sr); err != nil {
+		return nil, fmt.Errorf("valkeya: error decoding message: %w", err)
+	}
+	record := s.generator(sr.ID, k)
+	record.Reinit(sr.Value, sr.Passphrase, sr.ExpiresAt, sr.Files)
 	return record, nil
 }
 
-func (s *ValkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
+func (s *valkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
 	_, recordCounterKey := s.generateStorageKeys(id)
 	views, err := s.client.Do(ctx, s.client.B().Get().Key(recordCounterKey).Build()).AsUint64()
 	if err != nil {
@@ -109,7 +114,7 @@ func (s *ValkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
 	return views, nil
 }
 
-func (s *ValkeyStorage) Viewed(ctx context.Context, id ID) error {
+func (s *valkeyStorage) Viewed(ctx context.Context, id ID) error {
 	_, recordCounterKey := s.generateStorageKeys(id)
 	viewsLeft, err := s.ViewsLeft(ctx, id)
 	if err != nil {
@@ -121,7 +126,7 @@ func (s *ValkeyStorage) Viewed(ctx context.Context, id ID) error {
 	return s.client.Do(ctx, s.client.B().Decr().Key(recordCounterKey).Build()).Error()
 }
 
-func (s *ValkeyStorage) Burn(ctx context.Context, id ID) error {
+func (s *valkeyStorage) Burn(ctx context.Context, id ID) error {
 	recordKey, recordCounterKey := s.generateStorageKeys(id)
 	for _, r := range s.client.DoMulti(ctx,
 		s.client.B().Del().Key(recordCounterKey).Build(),
@@ -134,6 +139,6 @@ func (s *ValkeyStorage) Burn(ctx context.Context, id ID) error {
 	return nil
 }
 
-func (_ *ValkeyStorage) generateStorageKeys(id ID) (recordKey string, recordCounterKey string) {
+func (_ *valkeyStorage) generateStorageKeys(id ID) (recordKey string, recordCounterKey string) {
 	return string(id), string(id + "_counter")
 }

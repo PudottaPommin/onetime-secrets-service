@@ -13,9 +13,11 @@
         line-height: var(--text-4xl--line-height);
         font-weight: var(--font-weight-medium);
     }
+}
 
-    label {
-    /*    block text-sm/6 font-medium text-gray-900 dark:text-white*/
+@layer components {
+    .form-label {
+        /*    block text-sm/6 font-medium text-gray-900 dark:text-white*/
         display: block;
         font-weight: var(--font-weight-medium);
         font-size: var(--text-sm);
@@ -26,9 +28,7 @@
             color: var(--color-white);
         }
     }
-}
 
-@layer components {
     .card {
         margin: 0 auto;
         border-radius: var(--radius-lg);

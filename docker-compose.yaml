@@ -3,33 +3,12 @@ name: secret-notes
 services:
   db:
     image: valkey/valkey:9-alpine
-    # The 'command' directive correctly passes arguments to valkey-server
     command: valkey-server --save 60 1 --loglevel warning
     mem_limit: 1g
     ports:
       - '127.0.0.1:8081:6379'
-    # Uncomment this volume to make your data persistent
     volumes:
       - db_data:/data
-
-  oss:
-    image: ghcr.io/pudottapommin/onetime-secrets-service:0.0.2-SNAPSHOT-1c08dc9-amd64
-    profiles:
-      - staging
-    mem_limit: 1g
-    ports:
-      - '127.0.0.1:8080:8080'
-    environment:
-      - OSS_PROD=true
-      - OSS_DOMAIN=http://dev.oss.local
-      - OSS_DB=db:6379
-      - OSS_HOST=0.0.0.0:8080
-      - OSS_BASIC_AUTH_ENABLED=1
-      - OSS_BASIC_AUTH_USERNAME=test
-      - OSS_BASIC_AUTH_PASSWORD=test
-      - OSS_UI=true
-      - OSS_CSRF_HASH_KEY=RoSgazwcloaLM/NzzZHpfzchnfO/pMQgSsnSKj9pfRk=
-      - OSS_CSRF_BLOCK_KEY=3PTaufgXwR3napymVm7rmh/cNtpyAdjNqBn0KG4ogJs=
 
 volumes:
   db_data:
