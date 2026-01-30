@@ -63,7 +63,7 @@ func (a *App) Run() (err error) {
 		if err != nil {
 			return fmt.Errorf("failed to create cookie: %w", err)
 		}
-		a.E().Use(csrf.New(sc).Handler)
+		a.E().Use(csrf.New(sc, csrf.WithCookieName("oss_csrf")).Handler)
 	}
 
 	api.NewHandlers(a.cfg, a.db, a.l).AddHandlers(a.E())

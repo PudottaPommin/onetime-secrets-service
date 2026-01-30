@@ -3,6 +3,7 @@ package ui
 import (
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -30,6 +31,10 @@ var templateFn = template.FuncMap{
 	},
 	"expirationRanges": func() map[int]string {
 		return secrets.ExpirationRanges
+	},
+	"json": func(v any) template.JS {
+		b, _ := json.Marshal(v)
+		return template.JS(b)
 	},
 }
 
