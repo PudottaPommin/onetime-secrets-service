@@ -21,7 +21,7 @@ builds:
   - main: ./cmd/server/main.go
     env:
       - CGO_ENABLED=0
-      - GOEXPERIMENT=greenteagc,jsonv2
+      - GOEXPERIMENT=jsonv2
     binary: server
     goos: [ linux, windows ]
     goarch: [ amd64, arm64 ]

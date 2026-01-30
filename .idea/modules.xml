@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/../golib/.idea/golib.iml" filepath="$PROJECT_DIR$/../golib/.idea/golib.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/secret-notes.iml" filepath="$PROJECT_DIR$/.idea/secret-notes.iml" />
     </modules>
   </component>

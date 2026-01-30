@@ -2,11 +2,11 @@
   "name": "secret-notes",
   "private": true,
   "scripts": {
-    "check": "GOEXPERIMENT=greenteagc,jsonv2 go vet ./...",
+    "check": "GOEXPERIMENT=jsonv2 go vet ./...",
     "fmt": "go fmt ./... && go tool goimports -w .",
     "update": "go get -u ./... && go mod tidy -v",
     "gen": "go generate -tags bindata ./...",
-    "dev": "GOEXPERIMENT=greenteagc,jsonv2 go tool wgo -file=.gohtml -file=.go go run ./cmd/server/main.go",
+    "dev": "GOEXPERIMENT=jsonv2 go tool wgo -file=.gohtml -file=.go go run ./cmd/server/main.go",
     "css": "tailwindcss -i ./pkg/ui/app.css -o ./assets/cdn/app.min.css --minify",
     "css:watch": "tailwindcss -i ./pkg/ui/app.css -o ./assets/cdn/app.min.css --watch",
     "build:win": "go build -trimpath ./cmd/server/main.go",

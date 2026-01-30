@@ -1,6 +1,6 @@
 module github.com/pudottapommin/onetime-secrets-service/tools
 
-go 1.25
+go 1.26
 
 tool (
 	github.com/bokwoon95/wgo
@@ -11,6 +11,7 @@ tool (
 require (
 	github.com/bokwoon95/wgo v0.6.2 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/pudottapommin/asseter v0.0.2-0.20260129091906-d6240584340b // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
