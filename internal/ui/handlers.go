@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pudottapommin/golib/http/middleware/csrf"
-	"github.com/pudottapommin/golib/pkg/id"
+	"github.com/pudottapommin/golib/id"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
@@ -23,8 +25,17 @@ import (
 	"github.com/valyala/bytebufferpool"
 )
 
+const (
+	maxAttachmentsSize = 256 << 20       // 256 MiB
+	maxBodySize        = (256 + 1) << 20 // 257 MiB (256 MiB attachments + 1 MiB form overhead)
+	defaultMaxMemory   = 32 << 20        // 32 MiB
+)
+
 func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
-	isAuthenticated := r.Context().Value(server.AuthContextKey).(bool)
+	isAuthenticated, ok := r.Context().Value(server.AuthContextKey).(bool)
+	if !ok {
+		isAuthenticated = !h.cfg.Load().Auth.IsEnabled
+	}
 
 	csrfToken := csrf.FromContextStringed(r.Context())
 	csrfField := csrf.FromContextFieldName(r.Context())
@@ -36,6 +47,44 @@ func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
+	isAuthenticated, ok := r.Context().Value(server.AuthContextKey).(bool)
+	if !ok {
+		isAuthenticated = !h.cfg.Load().Auth.IsEnabled
+	}
+	if !isAuthenticated {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if r.MultipartForm == nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		if err := r.ParseMultipartForm(defaultMaxMemory); err != nil {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				if err = ui.Index.ExecuteHTMXSecretError(w, "Attachments exceed maximum allowed size (256 MiB)"); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+				return
+			}
+			if err = ui.Index.ExecuteHTMXSecretError(w, "Invalid form data"); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+	}
+
+	var totalAttachmentsSize int64
+	if r.MultipartForm != nil {
+		for _, file := range r.MultipartForm.File["attachments"] {
+			totalAttachmentsSize += file.Size
+		}
+	}
+	if totalAttachmentsSize > maxAttachmentsSize {
+		if err := ui.Index.ExecuteHTMXSecretError(w, "Attachments exceed maximum allowed size (256 MiB)"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
 	sid := storage.ID(id.New().String())
 	key := encryption.GenerateNewKey(32)
 	secret := secrets.NewSecret(sid, key)
@@ -79,23 +128,26 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 		secret.SetExpiration(time.Second * time.Duration(expiration))
 	}
 
-	for k, mpf := range r.MultipartForm.File {
-		if k != "attachments" {
-			continue
-		}
-		for _, file := range mpf {
+	if r.MultipartForm != nil {
+		for _, file := range r.MultipartForm.File["attachments"] {
 			b, err := readFile(file)
 			if err != nil {
 				h.l.Error("failed to read file", slog.Any("err", err), slog.String("name", file.Filename))
-				continue
+				if err = ui.Index.ExecuteHTMXSecretError(w, "Failed to read attachment"); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+				return
 			}
 			secret.AddFile(file.Filename, b)
 		}
 	}
 
 	insert, err := h.db.Store(r.Context(), secret)
-	if err = ui.Index.ExecuteHTMXSecretError(w, "Failed to store secret"); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err != nil {
+		h.l.Error("failed to store secret", slog.Any("err", err))
+		if err = ui.Index.ExecuteHTMXSecretError(w, "Failed to store secret"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -109,6 +161,18 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func parseSecretValue(value string) ([]byte, storage.ID, error) {
+	parts := strings.SplitN(value, "-", 2)
+	if len(parts) != 2 {
+		return nil, "", errors.New("invalid secret value format")
+	}
+	encKey, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return nil, "", err
+	}
+	return encKey, storage.ID(parts[1]), nil
+}
+
 func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	value := strings.TrimSpace(r.PathValue("value"))
@@ -117,8 +181,7 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parts := strings.Split(value, "-")
-	encKey, err := hex.DecodeString(parts[0])
+	encKey, sid, err := parseSecretValue(value)
 	if err != nil {
 		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -127,7 +190,6 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 
 	csrfToken := csrf.FromContextStringed(r.Context())
 	csrfField := csrf.FromContextFieldName(r.Context())
-	sid := storage.ID(parts[1])
 	secret, err := h.db.Get(ctx, sid, encKey)
 	switch {
 	case errors.Is(err, storage.ErrRecordNotFound) || (err == nil && secret == nil):
@@ -159,7 +221,6 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 
 	model := ui.PageSecret{
 		Url:        r.URL.Path,
-		Secret:     secret.Value(),
 		Passphrase: secret.Passphrase(),
 		ViewsLeft:  viewsLeft,
 		FormModel:  &ui.FormModel{CsrfField: csrfField, CsrfToken: csrfToken},
@@ -179,14 +240,12 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parts := strings.Split(value, "-")
-	encKey, err := hex.DecodeString(parts[0])
+	encKey, sid, err := parseSecretValue(value)
 	if err != nil {
 		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sid := storage.ID(parts[1])
 	secret, err := h.db.Get(ctx, sid, encKey)
 	switch {
 	case errors.Is(err, storage.ErrRecordNotFound) || (err == nil && secret == nil):
@@ -201,6 +260,7 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 	if secret.Passphrase() != nil && *secret.Passphrase() != "" {
 		passphrase := r.FormValue("passphrase")
 		if subtle.ConstantTimeCompare([]byte(passphrase), []byte(*secret.Passphrase())) != 1 {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err = ui.Secret.ExecuteHTMXDecryptError(w); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -209,17 +269,28 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err = h.db.Viewed(ctx, sid); err != nil {
-		h.l.Error("failed to mark secret as viewed", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	var fileLinks []ui.SecretFileLink
+	if len(secret.Files()) > 0 {
+		token, err := h.db.IssueDownloadGrant(ctx, sid)
+		if err != nil {
+			h.l.Error("failed to issue download grant", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fileLinks = make([]ui.SecretFileLink, len(secret.Files()))
+		for i, f := range secret.Files() {
+			fileLinks[i] = ui.SecretFileLink{
+				Name: f.Name,
+				URL:  fmt.Sprintf("%s/files/%d?g=%s", r.URL.Path, i, token),
+			}
+		}
 	}
 
 	model := ui.CardSecretDecrypted{
 		Url:       r.URL.Path,
 		Secret:    secret.Value(),
 		ExpiresAt: secret.ExpiresAt(),
-		Files:     secret.Files(),
+		Files:     fileLinks,
 	}
 	bb := bytebufferpool.Get()
 	defer bytebufferpool.Put(bb)
@@ -228,23 +299,97 @@ func (h *handlers) secretPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := server.NewSSEWriter(w, r)
-	if err = sse.WriteHTML(bb.String()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err = w.Write(bb.Bytes()); err != nil {
+		h.l.Error("failed to write decrypted response", "error", err)
 		return
 	}
 
-	if len(model.Files) > 0 {
-		bb.Reset()
-		if err = ui.Secret.ExecuteHTMXSecretDecryptedFiles(bb, model); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err = h.db.Viewed(ctx, sid); err != nil {
+		h.l.Error("failed to mark secret as viewed", "error", err)
+		return
+	}
+}
+
+func (h *handlers) secretFileGET(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	value := strings.TrimSpace(r.PathValue("value"))
+	if value == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	encKey, sid, err := parseSecretValue(value)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	token := r.URL.Query().Get("g")
+	if token == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err = h.db.ValidDownloadGrant(ctx, sid, token); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	idxStr := r.PathValue("index")
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil || idx < 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	record, err := h.db.Load(ctx, sid, encKey)
+	if err != nil {
+		if errors.Is(err, storage.ErrRecordNotFound) {
+			http.NotFound(w, r)
 			return
 		}
-		if err = sse.WriteHTML(bb.String()); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		h.l.Error("failed to load secret for download", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	files := record.Files()
+	if idx >= len(files) {
+		http.NotFound(w, r)
+		return
+	}
+
+	file := files[idx]
+	filename := path.Base(strings.ReplaceAll(file.Name, `\`, "/"))
+	filename = strings.ReplaceAll(filename, `"`, "")
+	filename = strings.ReplaceAll(filename, "\r", "")
+	filename = strings.ReplaceAll(filename, "\n", "")
+	if filename == "" || filename == "." || filename == "/" {
+		filename = "attachment"
+	}
+
+	disposition := fmt.Sprintf(`attachment; filename="%s"`, filename)
+	for i := 0; i < len(filename); i++ {
+		if filename[i] >= 0x80 {
+			disposition = fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, filename, url.PathEscape(filename))
+			break
 		}
 	}
+
+	w.Header().Set("No-Gzip-Compression", "true")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", disposition)
+	w.Header().Set("Content-Length", strconv.Itoa(len(file.Content)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(file.Content)
 }
 
 func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {
@@ -280,8 +425,8 @@ func readFile(file *multipart.FileHeader) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(f)
-	if err != nil {
+	b := make([]byte, file.Size)
+	if _, err = io.ReadFull(f, b); err != nil {
 		return nil, err
 	}
 	return b, nil

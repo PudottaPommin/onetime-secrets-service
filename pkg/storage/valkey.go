@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"time"
@@ -60,7 +62,7 @@ func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*Ins
 	}
 
 	expiresAt := time.Now().Add(record.Expiration()).UTC()
-	rk, rck := s.generateStorageKeys(record.ID())
+	rk, rck, _ := s.generateStorageKeys(record.ID())
 	c1 := s.client.B().Set().Key(rck).Value(fmt.Sprintf("%d", record.MaxViews())).Nx().Ex(record.Expiration()).Build()
 	c2 := s.client.B().Set().Key(rk).Value(valkey.BinaryString(buf.Bytes())).Nx().Ex(record.Expiration()).Build()
 
@@ -73,19 +75,44 @@ func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*Ins
 }
 
 func (s *valkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key], error) {
-	rk, rck := s.generateStorageKeys(id)
-	counter, err := s.client.Do(ctx, s.client.B().Get().Key(rck).Build()).AsUint64()
+	rk, rck, rdk := s.generateStorageKeys(id)
+	counter, err := s.client.Do(ctx, s.client.B().Get().Key(rck).Build()).AsInt64()
 	if err != nil {
 		if valkey.IsValkeyNil(err) {
 			return nil, ErrRecordNotFound
 		}
 		return nil, fmt.Errorf("valkeya: error getting counter: %w", err)
 	}
-	if counter == 0 {
-		return nil, s.Burn(ctx, id)
+	if counter <= 0 {
+		hasGrant, _ := s.client.Do(ctx, s.client.B().Exists().Key(rdk).Build()).AsInt64()
+		if hasGrant == 0 {
+			_ = s.Burn(ctx, id)
+		} else {
+			_ = s.client.Do(ctx, s.client.B().Del().Key(rck).Build()).Error()
+		}
+		return nil, ErrRecordNotFound
 	}
 
+	return s.loadRecord(ctx, rk, k)
+}
+
+func (s *valkeyStorage) Load(ctx context.Context, id ID, k Key) (Record[ID, Key], error) {
+	rk, _, _ := s.generateStorageKeys(id)
+	exists, err := s.client.Do(ctx, s.client.B().Exists().Key(rk).Build()).AsInt64()
+	if err != nil {
+		return nil, fmt.Errorf("valkeya: error checking existence: %w", err)
+	}
+	if exists == 0 {
+		return nil, ErrRecordNotFound
+	}
+	return s.loadRecord(ctx, rk, k)
+}
+
+func (s *valkeyStorage) loadRecord(ctx context.Context, rk string, k Key) (Record[ID, Key], error) {
 	pr, pw := io.Pipe()
+	defer func() {
+		_ = pr.Close()
+	}()
 	go func() {
 		defer pw.Close()
 		c := s.client.DoStream(ctx, s.client.B().Get().Key(rk).Build())
@@ -95,6 +122,7 @@ func (s *valkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 	}()
 
 	var encryptor Encryptor
+	var err error
 	if s.encryptor != nil {
 		encryptor = s.encryptor
 	} else {
@@ -119,7 +147,7 @@ func (s *valkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 }
 
 func (s *valkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
-	_, recordCounterKey := s.generateStorageKeys(id)
+	_, recordCounterKey, _ := s.generateStorageKeys(id)
 	views, err := s.client.Do(ctx, s.client.B().Get().Key(recordCounterKey).Build()).AsUint64()
 	if err != nil {
 		if valkey.IsValkeyNil(err) {
@@ -131,22 +159,27 @@ func (s *valkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
 }
 
 func (s *valkeyStorage) Viewed(ctx context.Context, id ID) error {
-	_, recordCounterKey := s.generateStorageKeys(id)
-	viewsLeft, err := s.ViewsLeft(ctx, id)
+	_, recordCounterKey, recordDownloadKey := s.generateStorageKeys(id)
+	remaining, err := s.client.Do(ctx, s.client.B().Decr().Key(recordCounterKey).Build()).AsInt64()
 	if err != nil {
-		return err
+		return fmt.Errorf("valkeya: error decrementing views left: %w", err)
 	}
-	if viewsLeft == 0 {
+	if remaining <= 0 {
+		hasGrant, err := s.client.Do(ctx, s.client.B().Exists().Key(recordDownloadKey).Build()).AsInt64()
+		if err == nil && hasGrant > 0 {
+			return s.client.Do(ctx, s.client.B().Del().Key(recordCounterKey).Build()).Error()
+		}
 		return s.Burn(ctx, id)
 	}
-	return s.client.Do(ctx, s.client.B().Decr().Key(recordCounterKey).Build()).Error()
+	return nil
 }
 
 func (s *valkeyStorage) Burn(ctx context.Context, id ID) error {
-	recordKey, recordCounterKey := s.generateStorageKeys(id)
+	recordKey, recordCounterKey, recordDownloadKey := s.generateStorageKeys(id)
 	for _, r := range s.client.DoMulti(ctx,
 		s.client.B().Del().Key(recordCounterKey).Build(),
 		s.client.B().Del().Key(recordKey).Build(),
+		s.client.B().Del().Key(recordDownloadKey).Build(),
 	) {
 		if r.Error() != nil {
 			return r.Error()
@@ -155,6 +188,49 @@ func (s *valkeyStorage) Burn(ctx context.Context, id ID) error {
 	return nil
 }
 
-func (_ *valkeyStorage) generateStorageKeys(id ID) (recordKey string, recordCounterKey string) {
-	return string(id), string(id + "_counter")
+func (s *valkeyStorage) IssueDownloadGrant(ctx context.Context, id ID) (string, error) {
+	recordKey, _, recordDownloadKey := s.generateStorageKeys(id)
+	ttl, err := s.client.Do(ctx, s.client.B().Ttl().Key(recordKey).Build()).AsInt64()
+	if err != nil {
+		return "", fmt.Errorf("valkeya: error getting ttl: %w", err)
+	}
+	if ttl <= 0 {
+		return "", ErrRecordNotFound
+	}
+
+	token := hex.EncodeToString(GenerateRandomKey(32))
+	res := s.client.Do(ctx, s.client.B().Set().Key(recordDownloadKey).Value(token).Nx().Ex(time.Duration(ttl)*time.Second).Build())
+	if err := res.Error(); err != nil {
+		if valkey.IsValkeyNil(err) {
+			existingToken, getErr := s.client.Do(ctx, s.client.B().Get().Key(recordDownloadKey).Build()).ToString()
+			if getErr != nil {
+				return "", fmt.Errorf("valkeya: error getting existing grant: %w", getErr)
+			}
+			return existingToken, nil
+		}
+		return "", fmt.Errorf("valkeya: error setting grant: %w", err)
+	}
+	return token, nil
+}
+
+func (s *valkeyStorage) ValidDownloadGrant(ctx context.Context, id ID, token string) error {
+	if token == "" {
+		return ErrRecordNotFound
+	}
+	_, _, recordDownloadKey := s.generateStorageKeys(id)
+	storedToken, err := s.client.Do(ctx, s.client.B().Get().Key(recordDownloadKey).Build()).ToString()
+	if err != nil {
+		if valkey.IsValkeyNil(err) {
+			return ErrRecordNotFound
+		}
+		return fmt.Errorf("valkeya: error getting grant: %w", err)
+	}
+	if subtle.ConstantTimeCompare([]byte(token), []byte(storedToken)) != 1 {
+		return ErrRecordNotFound
+	}
+	return nil
+}
+
+func (_ *valkeyStorage) generateStorageKeys(id ID) (recordKey string, recordCounterKey string, recordDownloadKey string) {
+	return string(id), string(id + "_counter"), string(id + "_download")
 }

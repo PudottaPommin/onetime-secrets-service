@@ -25,6 +25,10 @@ func TestGobEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, encoded)
 
+	// Encode a different struct to ensure pooled buffer reuse does not overwrite encoded
+	_, err = encoder.Encode(testStruct{B: []byte("other-payload"), S: "other", I: 99})
+	assert.NoError(t, err)
+
 	decoded := testStruct{}
 	assert.NoError(t, encoder.Decode(encoded, &decoded))
 	assert.Equal(t, tstruct, decoded)

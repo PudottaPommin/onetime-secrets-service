@@ -3,4 +3,8 @@
   <component name="GoLinterFmtOnSave">
     <option name="enabledOnSave" value="true" />
   </component>
+  <component name="GoLinterSettings">
+    <option name="customConfigFile" value="$PROJECT_DIR$/.golangci.yml" />
+    <option name="useCustomConfigFile" value="true" />
+  </component>
 </project>

@@ -3,11 +3,11 @@
 package assets
 
 import (
-	"github.com/pudottapommin/golib/pkg/assetsfs"
+	"github.com/pudottapommin/golib/vfs"
 )
 
-func BuiltinAssets() *assetsfs.Layer {
-	return assetsfs.Local("builtin(dynamic)", ".", "assets/cdn")
+func BuiltinAssets() *vfs.Layer {
+	return vfs.Local("builtin(dynamic)", ".", "assets/cdn")
 }
 
 func Url(path string) string {

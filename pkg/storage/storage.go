@@ -20,10 +20,14 @@ type (
 	Storage[I ~string, K ~[]byte] interface {
 		Store(context.Context, Record[I, K]) (*InsertResult[I, K], error)
 		Get(context.Context, ID, K) (Record[I, K], error)
+		Load(context.Context, ID, K) (Record[I, K], error)
 		Burn(context.Context, ID) error
 
 		ViewsLeft(context.Context, ID) (uint64, error)
 		Viewed(ctx context.Context, id ID) error
+
+		IssueDownloadGrant(context.Context, ID) (string, error)
+		ValidDownloadGrant(context.Context, ID, string) error
 	}
 
 	Record[I ~string, K ~[]byte] interface {

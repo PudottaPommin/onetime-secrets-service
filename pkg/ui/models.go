@@ -2,8 +2,6 @@ package ui
 
 import (
 	"time"
-
-	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 )
 
 type (
@@ -27,10 +25,14 @@ type (
 		Url       string
 		ExpiresAt time.Time
 	}
+	SecretFileLink struct {
+		Name string
+		URL  string
+	}
 	CardSecretDecrypted struct {
 		Url       string
 		Secret    string
 		ExpiresAt time.Time
-		Files     []*storage.FileRecord
+		Files     []SecretFileLink
 	}
 )

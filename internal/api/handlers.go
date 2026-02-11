@@ -6,12 +6,13 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/pudottapommin/golib/pkg/id"
+	"github.com/pudottapommin/golib/id"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
@@ -76,7 +77,11 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parts := strings.Split(value, "-")
+	parts := strings.SplitN(value, "-", 2)
+	if len(parts) != 2 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
 		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
@@ -96,7 +101,14 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = fmt.Fprintf(w, "%s", secret.Value())
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if _, err = io.WriteString(w, secret.Value()); err != nil {
+		h.l.Error("failed to write secret response", "error", err)
+		return
+	}
+
+	if err = h.db.Viewed(ctx, sid); err != nil {
+		h.l.Error("failed to mark secret as viewed", "error", err)
+	}
 }

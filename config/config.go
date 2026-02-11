@@ -5,17 +5,18 @@ import (
 	"reflect"
 
 	"github.com/caarlos0/env/v11"
+
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 )
 
 type Config struct {
-	IsProd    bool   `env:"OSS_PROD" envDefault:"false"`
+	IsProd    bool   `env:"OSS_PROD"       envDefault:"false"`
 	SecretKey []byte `env:"OSS_SECRET_KEY"`
 
 	Server struct {
 		Addr        string `env:"ADDR,required" envDefault:"127.0.0.1:8080"`
 		Domain      string `env:"DOMAIN,required" envDefault:"http://localhost:8080"`
-		DB          string `env:"DB,required" envDefault:"127.0.0.1:8081"`
+		DB          string `env:"DB,required" envDefault:"127.0.0.1:6379"`
 		UI          bool   `env:"UI" envDefault:"true"`
 		UIHotReload bool   `env:"UI_HOT_RELOAD" envDefault:"false"`
 	} `envPrefix:"OSS_SERVER_"`
@@ -40,7 +41,7 @@ type Config struct {
 func (c *Config) Load() error {
 	return env.ParseWithOptions(c, env.Options{
 		FuncMap: map[reflect.Type]env.ParserFunc{
-			reflect.TypeOf([]byte{}): func(val string) (any, error) {
+			reflect.TypeFor[[]byte](): func(val string) (any, error) {
 				if val == "" {
 					return nil, nil
 				}

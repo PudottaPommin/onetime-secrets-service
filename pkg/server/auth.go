@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pudottapommin/golib/pkg/id"
+	"github.com/pudottapommin/golib/id"
 )
 
 type authContextKey uint

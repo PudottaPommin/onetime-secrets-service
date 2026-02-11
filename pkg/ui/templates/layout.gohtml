@@ -27,11 +27,14 @@
         <meta name="msapplication-config" content="{{asset "browserconfig.xml"}}">
         <meta name="theme-color" content="#ffffff">
 
+        {{with .FormModel}}
+            <meta name="csrf-token" content="{{.CsrfToken}}">
+        {{end}}
+
         <link rel="stylesheet" href="{{asset "app.min.css"}}">
         <link rel="stylesheet" href="{{asset "inter.min.css"}}">
 
-        <script src="{{asset "htmx.min.js"}}"></script>
-        <script type="module" src="{{asset "alpinejs.min.js"}}"></script>
+        <script type="module" src="{{asset "app.min.js"}}"></script>
 
         <title>Onetime secret service</title>
     </head>

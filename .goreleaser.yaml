@@ -10,18 +10,17 @@ version: 2
 project_name: onetime-secrets-service
 dist: ./artifacts
 
-before:
-  hooks:
-    # You may remove this if you don't use go modules.
-    - go mod tidy
-    - bun run css
-    - go generate -tags bindata ./...
+#before:
+#  hooks:
+#    # You may remove this if you don't use go modules.
+#    - go mod tidy
+#    - bun run css
+#    - go generate -tags bindata ./...
 
 builds:
   - main: ./cmd/server/main.go
     env:
       - CGO_ENABLED=0
-      - GOEXPERIMENT=jsonv2
     binary: server
     goos: [ linux, windows ]
     goarch: [ amd64, arm64 ]

@@ -2,19 +2,35 @@
   "name": "secret-notes",
   "private": true,
   "scripts": {
-    "check": "GOEXPERIMENT=jsonv2 go vet ./...",
-    "fmt": "go fmt ./... && go tool goimports -w .",
-    "update": "go get -u ./... && go mod tidy -v",
+    "check": "go vet ./...",
+    "fmt": "golangci-lint fmt",
+    "lint": "golangci-lint run",
+    "lint:fix": "golangci-lint run --fix",
+    "dev": "wgo run -tags=localfs ./cmd/server",
     "gen": "go generate -tags bindata ./...",
-    "dev": "GOEXPERIMENT=jsonv2 go tool wgo -file=.gohtml -file=.go go run ./cmd/server/main.go",
-    "css": "tailwindcss -i ./pkg/ui/app.css -o ./assets/cdn/app.min.css --minify",
-    "css:watch": "tailwindcss -i ./pkg/ui/app.css -o ./assets/cdn/app.min.css --watch",
-    "build:win": "go build -trimpath ./cmd/server/main.go",
+    "build:prepare": "bun run css && bun run js && bun run gen",
+    "css": "tailwindcss -i pkg/ui/templates/app.css -o ./assets/cdn/app.min.css --minify",
+    "css:watch": "tailwindcss -i pkg/ui/templates/app.css -o ./assets/cdn/app.min.css --watch",
+    "js": "bun build pkg/ui/templates/app.js --outdir ./assets/cdn --minify --target browser --splitting --entry-naming '[name].min.[ext]'",
+    "js:watch": "bun build pkg/ui/templates/app.js --outdir ./assets/cdn --watch --target browser --splitting --sourcemap=inline --entry-naming '[name].min.[ext]'",
     "release": "goreleaser release --clean",
     "release:snapshot": "goreleaser release --snapshot --clean"
   },
   "dependencies": {
-    "@tailwindcss/cli": "^4.1.18",
-    "tailwindcss": "^4.1.18"
-  }
+    "@alpinejs/collapse": "3.17.4",
+    "@tailwindplus/elements": "1.0.22",
+    "alpinejs": "3.17.4",
+    "htmx.org": "4.0.0"
+  },
+  "devDependencies": {
+    "@fontsource-variable/montserrat": "5.3.0",
+    "@fontsource-variable/roboto-flex": "5.3.0",
+    "@tailwindcss/cli": "4.3.3",
+    "oxfmt": "0.68.0",
+    "oxlint": "1.83.0",
+    "tailwindcss": "4.3.3"
+  },
+  "trustedDependencies": [
+    "@parcel/watcher"
+  ]
 }

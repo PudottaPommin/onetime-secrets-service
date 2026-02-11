@@ -42,6 +42,7 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				cfg := h.cfg.Load()
 				if !cfg.Auth.IsEnabled {
+					r = r.WithContext(context.WithValue(r.Context(), server.AuthContextKey, true))
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -63,6 +64,7 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 		g.HandleFunc("/", h.indexPUT, "PUT")
 		g.HandleFunc("/", h.indexGET, "GET")
 	})
+	e.HandleFunc("/:value/files/:index", h.secretFileGET, "GET")
 	e.HandleFunc("/:value", h.secretPOST, "POST")
 	e.HandleFunc("/:value", h.secretGET, "GET")
 }

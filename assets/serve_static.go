@@ -1,15 +1,15 @@
 //go:build bindata
 
-//go:generate go tool asseter gen -src ./cdn -pkg assets -out bindata.asseter.go
+//go:generate go tool asseter generate -src ./cdn
 
 package assets
 
 import (
-	"github.com/pudottapommin/golib/pkg/assetsfs"
+	"github.com/pudottapommin/golib/vfs"
 )
 
-func BuiltinAssets() *assetsfs.Layer {
-	return assetsfs.Blobs("builtin(bindata)", Assets)
+func BuiltinAssets() *vfs.Layer {
+	return vfs.Blobs("builtin(bindata)", Assets)
 }
 
 func Url(path string) string {

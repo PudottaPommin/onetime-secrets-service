@@ -46,7 +46,7 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 				}
 
 				switch r.Method {
-				case http.MethodPost:
+				case http.MethodPost, http.MethodPut:
 					if err := server.AuthValidateHeader(r, cfg.Auth.Username, cfg.Auth.Password); err != nil {
 						w.WriteHeader(http.StatusUnauthorized)
 						return

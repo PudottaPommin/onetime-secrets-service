@@ -10,20 +10,20 @@ import (
 	"sync/atomic"
 
 	"github.com/alexedwards/flow"
-	"github.com/pudottapommin/golib/http/cookie"
+	"github.com/pudottapommin/golib/http/middleware"
 	"github.com/pudottapommin/golib/http/middleware/compressor"
 	"github.com/pudottapommin/golib/http/middleware/csrf"
-	"github.com/pudottapommin/golib/http/middleware/logger"
-	"github.com/pudottapommin/golib/http/middleware/requestid"
 	"github.com/pudottapommin/golib/http/middleware/static"
-	"github.com/pudottapommin/golib/pkg/assetsfs"
+	"github.com/pudottapommin/golib/http/securecookie"
+	"github.com/pudottapommin/golib/vfs"
+	"github.com/valkey-io/valkey-go"
+
 	"github.com/pudottapommin/onetime-secrets-service/assets"
 	"github.com/pudottapommin/onetime-secrets-service/config"
 	"github.com/pudottapommin/onetime-secrets-service/internal/api"
 	"github.com/pudottapommin/onetime-secrets-service/internal/ui"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	pui "github.com/pudottapommin/onetime-secrets-service/pkg/ui"
-	"github.com/valkey-io/valkey-go"
 )
 
 type App struct {
@@ -51,19 +51,25 @@ func (a *App) Run() (err error) {
 	}
 
 	a.E().Use(
-		requestid.New().Handler,
-		logger.New(logger.WithLogger(a.l, "[HTTP]"), logger.WithNext(func(w http.ResponseWriter, r *http.Request) bool {
+		middleware.RequestID().Handler,
+		middleware.Logger(middleware.LoggerWithLogger(a.l), middleware.LoggerWithNext(func(w http.ResponseWriter, r *http.Request) bool {
 			return strings.HasPrefix(r.URL.Path, "/static") || strings.HasPrefix(r.URL.Path, "/.well-known")
-		})).Handler,
+		})).
+			Handler,
 		compressor.MustNew(),
 	)
 
 	if cfg.Csrf.IsEnabled {
-		sc, err := cookie.New(cfg.Csrf.HashKey, cfg.Csrf.BlockKey)
+		sc, err := securecookie.New(cfg.Csrf.HashKey, cfg.Csrf.BlockKey)
 		if err != nil {
 			return fmt.Errorf("failed to create cookie: %w", err)
 		}
-		a.E().Use(csrf.New(sc, csrf.WithCookieName("oss_csrf")).Handler)
+		a.E().Use(csrf.New(sc,
+			csrf.WithCookieName("oss_csrf"),
+			csrf.WithNext(func(w http.ResponseWriter, r *http.Request) bool {
+				return strings.HasPrefix(r.URL.Path, "/api/")
+			}),
+		).Handler)
 	}
 
 	api.NewHandlers(a.cfg, a.db, a.l).AddHandlers(a.E())
@@ -86,7 +92,7 @@ func (a *App) Run() (err error) {
 	}
 
 	a.E().Group(func(r *flow.Mux) {
-		ls := assetsfs.NewLayered(assets.BuiltinAssets())
+		ls := vfs.NewLayered(assets.BuiltinAssets())
 		r.Handle("/static/...", http.StripPrefix("/static/",
 			static.New(ls, static.WithEtag(), static.WithSetProd(cfg.IsProd))))
 	})
