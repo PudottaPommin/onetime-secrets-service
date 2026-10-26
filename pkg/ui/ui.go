@@ -2,7 +2,7 @@ package ui
 
 import (
 	"embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"html/template"
 	"io"
@@ -60,12 +60,15 @@ func (t indexTemplates) ExecutePage(w io.Writer, data PageIndex) error {
 func (t indexTemplates) ExecuteHTMXSecretCreatedCard(w io.Writer, data CardSecretCreated) error {
 	return t.template.ExecuteTemplate(w, "index/htmx/secret_created_card.html", data)
 }
+
 func (t indexTemplates) ExecuteHTMXSecretForm(w io.Writer, csrf FormModel) error {
 	return t.template.ExecuteTemplate(w, "index/htmx/secret_form.html", csrf)
 }
+
 func (t indexTemplates) ExecuteHTMXSecretError(w io.Writer, err string) error {
 	return t.template.ExecuteTemplate(w, "index/htmx/secret_error.html", err)
 }
+
 func (t indexTemplates) ExecuteHTMXAuthError(w io.Writer) error {
 	return t.template.ExecuteTemplate(w, "index/htmx/auth_error.html", nil)
 }
@@ -87,6 +90,7 @@ func (t secretTemplates) ExecutePage(w io.Writer, data PageSecret) error {
 func (t secretTemplates) ExecuteHTMXSecretDecrypted(w io.Writer, data CardSecretDecrypted) error {
 	return t.template.ExecuteTemplate(w, "secret/htmx/secret_decrypted.html", data)
 }
+
 func (t secretTemplates) ExecuteHTMXDecryptError(w io.Writer) error {
 	return t.template.ExecuteTemplate(w, "secret/htmx/decrypt_error.html", nil)
 }
@@ -103,5 +107,4 @@ func Recompile() {
 		template.New("index").
 			Funcs(templateFn).
 			ParseFS(fs, secretPaths...))
-
 }

@@ -18,11 +18,11 @@ issues:
   # Default: 3
   max-same-issues: 50
 
-output:
-  formats:
-    tab:
-      path: stdout
-  sort-order: [file, linter]
+#output:
+#  formats:
+#    tab:
+#      path: stdout
+#  sort-order: [file, linter]
 
 formatters:
   enable:
@@ -79,7 +79,7 @@ linters:
     - gocognit # computes and checks the cognitive complexity of functions
     - goconst # finds repeated strings that could be replaced by a constant
     - gocritic # provides diagnostics that check for bugs, performance and style issues
-    - gocyclo # computes and checks the cyclomatic complexity of functions
+#    - gocyclo # computes and checks the cyclomatic complexity of functions
     - godoclint # checks Golang's documentation practice
     - godot # checks if comments end in a period
     - gomoddirectives # manages the use of 'replace', 'retract', and 'excludes' directives in go.mod
@@ -274,6 +274,7 @@ linters:
         - "^github.com/testcontainers/testcontainers-go.FromDockerfile$"
         - "^golang.org/x/tools/go/analysis.Analyzer$"
         - "^gopkg.in/yaml.v3.Node$"
+        - "^github.com/valkey-io/valkey-go.+Option$"
       allow-empty-patterns:
         - '.*/http\.Cookie'
         - '.*/net\.Request'

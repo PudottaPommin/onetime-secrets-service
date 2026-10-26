@@ -17,18 +17,19 @@ import (
 
 	"github.com/pudottapommin/golib/http/middleware/csrf"
 	"github.com/pudottapommin/golib/id"
+	"github.com/valyala/bytebufferpool"
+
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/ui"
-	"github.com/valyala/bytebufferpool"
 )
 
 const (
-	maxAttachmentsSize = 256 << 20       // 256 MiB
-	maxBodySize        = (256 + 1) << 20 // 257 MiB (256 MiB attachments + 1 MiB form overhead)
-	defaultMaxMemory   = 32 << 20        // 32 MiB
+	maxAttachmentsSize = 512 << 20       // 512 MiB
+	maxBodySize        = (512 + 1) << 20 //nolint:mnd // 513 MiB (512 MiB attachments + 1 MiB form overhead)
+	defaultMaxMemory   = 1 << 20         // 1 MiB
 )
 
 func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +40,10 @@ func (h *handlers) indexGET(w http.ResponseWriter, r *http.Request) {
 
 	csrfToken := csrf.FromContextStringed(r.Context())
 	csrfField := csrf.FromContextFieldName(r.Context())
-	model := ui.PageIndex{IsAuthenticated: isAuthenticated, FormModel: &ui.FormModel{CsrfField: csrfField, CsrfToken: csrfToken}}
+	model := ui.PageIndex{
+		IsAuthenticated: isAuthenticated,
+		FormModel:       &ui.FormModel{CsrfField: csrfField, CsrfToken: csrfToken},
+	}
 	if err := ui.Index.ExecutePage(w, model); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -60,7 +64,10 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 		if err := r.ParseMultipartForm(defaultMaxMemory); err != nil {
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				if err = ui.Index.ExecuteHTMXSecretError(w, "Attachments exceed maximum allowed size (256 MiB)"); err != nil {
+				if err = ui.Index.ExecuteHTMXSecretError(
+					w,
+					"Attachments exceed maximum allowed size (512 MiB)",
+				); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
 				return
@@ -74,12 +81,13 @@ func (h *handlers) indexPUT(w http.ResponseWriter, r *http.Request) {
 
 	var totalAttachmentsSize int64
 	if r.MultipartForm != nil {
+		defer func() { _ = r.MultipartForm.RemoveAll() }()
 		for _, file := range r.MultipartForm.File["attachments"] {
 			totalAttachmentsSize += file.Size
 		}
 	}
 	if totalAttachmentsSize > maxAttachmentsSize {
-		if err := ui.Index.ExecuteHTMXSecretError(w, "Attachments exceed maximum allowed size (256 MiB)"); err != nil {
+		if err := ui.Index.ExecuteHTMXSecretError(w, "Attachments exceed maximum allowed size (512 MiB)"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
@@ -376,20 +384,71 @@ func (h *handlers) secretFileGET(w http.ResponseWriter, r *http.Request) {
 	disposition := fmt.Sprintf(`attachment; filename="%s"`, filename)
 	for i := 0; i < len(filename); i++ {
 		if filename[i] >= 0x80 {
-			disposition = fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, filename, url.PathEscape(filename))
+			disposition = fmt.Sprintf(
+				`attachment; filename="%s"; filename*=UTF-8''%s`,
+				filename,
+				url.PathEscape(filename),
+			)
 			break
 		}
 	}
 
-	w.Header().Set("No-Gzip-Compression", "true")
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", disposition)
-	w.Header().Set("Content-Length", strconv.Itoa(len(file.Content)))
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	setDownloadHeaders := func() {
+		w.Header().Set("No-Gzip-Compression", "true")
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", disposition)
+		w.Header().Set("Content-Length", strconv.FormatInt(file.Size, 10))
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(http.StatusOK)
+	}
 
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(file.Content)
+	if file.Size <= 0 {
+		setDownloadHeaders()
+		return
+	}
+
+	hw := &headerCommitWriter{
+		w:         w,
+		commit:    setDownloadHeaders,
+		committed: false,
+	}
+	if err = h.db.StreamFile(ctx, sid, encKey, idx, hw); err != nil {
+		if !hw.committed {
+			if errors.Is(err, storage.ErrRecordNotFound) {
+				http.NotFound(w, r)
+				return
+			}
+			h.l.ErrorContext(r.Context(), "failed to stream attachment", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		h.l.ErrorContext(r.Context(), "failed to stream attachment after headers committed", "error", err)
+		return
+	}
+	if !hw.committed {
+		setDownloadHeaders()
+	}
+}
+
+type headerCommitWriter struct {
+	w         io.Writer
+	commit    func()
+	committed bool
+}
+
+func (h *headerCommitWriter) Write(p []byte) (int, error) {
+	if !h.committed {
+		h.committed = true
+		if h.commit != nil {
+			h.commit()
+		}
+	}
+	n, err := h.w.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("failed to write in headerCommitWritter: %w", err)
+	}
+	return n, nil
 }
 
 func (h *handlers) authenticatePOST(w http.ResponseWriter, r *http.Request) {

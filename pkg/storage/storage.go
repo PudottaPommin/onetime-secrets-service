@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -9,18 +10,24 @@ type (
 	ID  string
 	Key []byte
 
+	storageFileMeta struct {
+		Name string
+		Size int64
+	}
+
 	storageRecord struct {
 		ID         ID
 		Value      string
 		Passphrase *string
 		ExpiresAt  time.Time
-		Files      []*FileRecord
+		Files      []storageFileMeta
 	}
 
 	Storage[I ~string, K ~[]byte] interface {
 		Store(context.Context, Record[I, K]) (*InsertResult[I, K], error)
 		Get(context.Context, ID, K) (Record[I, K], error)
 		Load(context.Context, ID, K) (Record[I, K], error)
+		StreamFile(ctx context.Context, id ID, key K, index int, w io.Writer) error
 		Burn(context.Context, ID) error
 
 		ViewsLeft(context.Context, ID) (uint64, error)
@@ -48,7 +55,8 @@ type (
 
 	FileRecord struct {
 		Name    string `json:"name"`
-		Content []byte `json:"content"`
+		Size    int64  `json:"size"`
+		Content []byte `json:"content,omitempty"`
 	}
 
 	InsertResult[I ~string, K ~[]byte] struct {

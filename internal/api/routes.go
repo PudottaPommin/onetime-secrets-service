@@ -6,11 +6,12 @@ import (
 	"sync/atomic"
 
 	"github.com/alexedwards/flow"
+	"github.com/valkey-io/valkey-go"
+
 	"github.com/pudottapommin/onetime-secrets-service/config"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
-	"github.com/valkey-io/valkey-go"
 )
 
 type handlers struct {
@@ -56,7 +57,7 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 			})
 		})
 
-		g.HandleFunc("/api/create", h.secretPUT, "PUT")
+		g.HandleFunc("/api/create", h.secretPUT, http.MethodPut)
 	})
-	e.HandleFunc("/api/:value", h.secretGET, "GET")
+	e.HandleFunc("/api/:value", h.secretGET, http.MethodGet)
 }

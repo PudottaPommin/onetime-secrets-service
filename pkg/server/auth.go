@@ -47,7 +47,6 @@ func AuthSetCookie(w http.ResponseWriter) {
 		MaxAge:   int(authExpiration.Seconds()),
 		SameSite: http.SameSiteStrictMode,
 	})
-
 }
 
 func AuthValidateToken(r *http.Request) error {
@@ -89,7 +88,8 @@ func AuthValidateHeader(r *http.Request, username, password string) error {
 		return errors.New("invalid authorization payload format")
 	}
 
-	if subtle.ConstantTimeCompare([]byte(pair[0]), []byte(username)) != 1 || subtle.ConstantTimeCompare([]byte(pair[1]), []byte(password)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(pair[0]), []byte(username)) != 1 ||
+		subtle.ConstantTimeCompare([]byte(pair[1]), []byte(password)) != 1 {
 		return ErrInvalidCredentials
 	}
 	return nil

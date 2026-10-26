@@ -19,9 +19,7 @@ type (
 	}
 )
 
-var (
-	_ storage.Record[storage.ID, storage.Key] = (*Secret)(nil)
-)
+var _ storage.Record[storage.ID, storage.Key] = (*Secret)(nil)
 
 func NewSecret(id storage.ID, key storage.Key) *Secret {
 	return &Secret{id: id, key: key, maxViews: 1, expiration: time.Minute * 30, files: make([]*storage.FileRecord, 0)}
@@ -72,7 +70,11 @@ func (s *Secret) SetPassphrase(passphrase string) {
 }
 
 func (s *Secret) AddFile(name string, content []byte) {
-	s.files = append(s.files, &storage.FileRecord{Name: name, Content: content})
+	s.files = append(s.files, &storage.FileRecord{
+		Name:    name,
+		Size:    int64(len(content)),
+		Content: content,
+	})
 }
 
 func (s *Secret) Files() []*storage.FileRecord {

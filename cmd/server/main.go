@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"github.com/valkey-io/valkey-go"
+
 	"github.com/pudottapommin/onetime-secrets-service/config"
 	"github.com/pudottapommin/onetime-secrets-service/internal/app"
-	"github.com/valkey-io/valkey-go"
 )
 
 var pCfg = new(atomic.Pointer[config.Config])
@@ -27,7 +28,7 @@ func main() {
 			slog.String("hash", base64.StdEncoding.EncodeToString(hk)),
 			slog.String("block", base64.StdEncoding.EncodeToString(bk)))
 	}
-	
+
 	pCfg.Store(cfg)
 
 	logLvl := slog.LevelWarn

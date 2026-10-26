@@ -38,8 +38,8 @@ type fileMeta struct {
 
 var (
 	hashedMap = map[string]string{
-		"app.min.075d95ab431ad89c.css":                                    "app.min.css",
-		"app.min.a1bc306cdd9b754f.js":                                     "app.min.js",
+		"app.min.5aaf372e10f7577d.css":                                    "app.min.css",
+		"app.min.dcf02d57ba6fc5cc.js":                                     "app.min.js",
 		"browserconfig.9b299a39f97129d8.xml":                              "browserconfig.xml",
 		"favicon-114x114.337b32ebba3ac6a2.png":                            "favicon-114x114.png",
 		"favicon-120x120.e843bd2b1d1c4530.png":                            "favicon-120x120.png",
@@ -102,8 +102,8 @@ var (
 
 	dirs = map[string][]fs.DirEntry{
 		".": {
-			direntry{"app.min.css", false, time.Unix(1793029367, 0), 24049},
-			direntry{"app.min.js", false, time.Unix(1793029367, 0), 184504},
+			direntry{"app.min.css", false, time.Unix(1793032780, 0), 26220},
+			direntry{"app.min.js", false, time.Unix(1793032780, 0), 186479},
 			direntry{"browserconfig.xml", false, time.Unix(1769730004, 0), 310},
 			direntry{"favicon-114x114.png", false, time.Unix(1769730004, 0), 2257},
 			direntry{"favicon-120x120.png", false, time.Unix(1769730004, 0), 2342},
@@ -171,21 +171,21 @@ var (
 	fileMetas = map[string]fileMeta{
 		"app.min.css": {
 			name:             "app.min.css",
-			hashedName:       "app.min.075d95ab431ad89c.css",
-			hash:             "075d95ab431ad89c",
+			hashedName:       "app.min.5aaf372e10f7577d.css",
+			hash:             "5aaf372e10f7577d",
 			embedPath:        "_embed/app.min.css.zst",
 			isCompressed:     true,
-			mtime:            time.Unix(1793029367, 0),
-			uncompressedSize: 24049,
+			mtime:            time.Unix(1793032780, 0),
+			uncompressedSize: 26220,
 		},
 		"app.min.js": {
 			name:             "app.min.js",
-			hashedName:       "app.min.a1bc306cdd9b754f.js",
-			hash:             "a1bc306cdd9b754f",
+			hashedName:       "app.min.dcf02d57ba6fc5cc.js",
+			hash:             "dcf02d57ba6fc5cc",
 			embedPath:        "_embed/app.min.js.zst",
 			isCompressed:     true,
-			mtime:            time.Unix(1793029367, 0),
-			uncompressedSize: 184504,
+			mtime:            time.Unix(1793032780, 0),
+			uncompressedSize: 186479,
 		},
 		"browserconfig.xml": {
 			name:             "browserconfig.xml",

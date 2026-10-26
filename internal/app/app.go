@@ -24,6 +24,7 @@ import (
 	"github.com/pudottapommin/onetime-secrets-service/internal/ui"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/server"
 	pui "github.com/pudottapommin/onetime-secrets-service/pkg/ui"
+	"github.com/pudottapommin/onetime-secrets-service/pkg/version"
 )
 
 type App struct {
@@ -44,7 +45,13 @@ func (a *App) Run() (err error) {
 	if cfg.Server.UIHotReload {
 		a.E().Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				pui.Recompile()
+				if !strings.HasPrefix(r.URL.Path, "/static") &&
+					!strings.HasPrefix(r.URL.Path, "/debug/pprof") &&
+					!strings.HasPrefix(r.URL.Path, "/api/") &&
+					!strings.HasPrefix(r.URL.Path, "/.well-known") &&
+					r.URL.Path != "/favicon.ico" {
+					pui.Recompile()
+				}
 				next.ServeHTTP(w, r)
 			})
 		})
@@ -52,11 +59,24 @@ func (a *App) Run() (err error) {
 
 	a.E().Use(
 		middleware.RequestID().Handler,
-		middleware.Logger(middleware.LoggerWithLogger(a.l), middleware.LoggerWithNext(func(w http.ResponseWriter, r *http.Request) bool {
-			return strings.HasPrefix(r.URL.Path, "/static") || strings.HasPrefix(r.URL.Path, "/.well-known")
+		middleware.Logger(middleware.LoggerWithLogger(a.l.With(
+			slog.String("version", version.Version),
+			slog.String("commit", version.Commit),
+		)), middleware.LoggerWithNext(func(_ http.ResponseWriter, r *http.Request) bool {
+			return strings.HasPrefix(r.URL.Path, "/static") ||
+				strings.HasPrefix(r.URL.Path, "/.well-known") ||
+				r.URL.Path == "/favicon.ico"
 		})).
 			Handler,
 		compressor.MustNew(),
+		func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-App-Version", version.Version)
+				w.Header().Set("X-App-Date", version.Date)
+				w.Header().Set("X-App-Revision", version.Commit)
+				next.ServeHTTP(w, r)
+			})
+		},
 	)
 
 	if cfg.Csrf.IsEnabled {
@@ -71,6 +91,10 @@ func (a *App) Run() (err error) {
 			}),
 		).Handler)
 	}
+
+	a.E().HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, assets.Url("favicon.ico"), http.StatusMovedPermanently)
+	}, http.MethodGet)
 
 	api.NewHandlers(a.cfg, a.db, a.l).AddHandlers(a.E())
 	if cfg.Server.UI {

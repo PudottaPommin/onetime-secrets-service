@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pudottapommin/golib/id"
+
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
@@ -66,7 +67,6 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 }
 
 func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {

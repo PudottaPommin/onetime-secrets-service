@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,32 +17,38 @@ import (
 	"time"
 
 	"github.com/alexedwards/flow"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/pudottapommin/onetime-secrets-service/config"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/secrets"
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type mockStorage struct {
 	storeFunc              func(ctx context.Context, record storage.Record[storage.ID, storage.Key]) (*storage.InsertResult[storage.ID, storage.Key], error)
 	getFunc                func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error)
 	loadFunc               func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error)
+	streamFileFunc         func(ctx context.Context, id storage.ID, key storage.Key, index int, w io.Writer) error
 	burnFunc               func(ctx context.Context, id storage.ID) error
 	viewsLeftFunc          func(ctx context.Context, id storage.ID) (uint64, error)
 	viewedFunc             func(ctx context.Context, id storage.ID) error
 	issueDownloadGrantFunc func(ctx context.Context, id storage.ID) (string, error)
 	validDownloadGrantFunc func(ctx context.Context, id storage.ID, token string) error
 
-	storeCalled  int
-	getCalled    int
-	loadCalled   int
-	viewedCalled int
-	grantIssued  int
-	grantChecked int
+	storeCalled      int
+	getCalled        int
+	loadCalled       int
+	streamFileCalled int
+	viewedCalled     int
+	grantIssued      int
+	grantChecked     int
 }
 
-func (m *mockStorage) Store(ctx context.Context, record storage.Record[storage.ID, storage.Key]) (*storage.InsertResult[storage.ID, storage.Key], error) {
+func (m *mockStorage) Store(
+	ctx context.Context,
+	record storage.Record[storage.ID, storage.Key],
+) (*storage.InsertResult[storage.ID, storage.Key], error) {
 	m.storeCalled++
 	if m.storeFunc != nil {
 		return m.storeFunc(ctx, record)
@@ -53,7 +60,11 @@ func (m *mockStorage) Store(ctx context.Context, record storage.Record[storage.I
 	}, nil
 }
 
-func (m *mockStorage) Get(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+func (m *mockStorage) Get(
+	ctx context.Context,
+	id storage.ID,
+	key storage.Key,
+) (storage.Record[storage.ID, storage.Key], error) {
 	m.getCalled++
 	if m.getFunc != nil {
 		return m.getFunc(ctx, id, key)
@@ -61,12 +72,24 @@ func (m *mockStorage) Get(ctx context.Context, id storage.ID, key storage.Key) (
 	return nil, storage.ErrRecordNotFound
 }
 
-func (m *mockStorage) Load(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+func (m *mockStorage) Load(
+	ctx context.Context,
+	id storage.ID,
+	key storage.Key,
+) (storage.Record[storage.ID, storage.Key], error) {
 	m.loadCalled++
 	if m.loadFunc != nil {
 		return m.loadFunc(ctx, id, key)
 	}
 	return nil, storage.ErrRecordNotFound
+}
+
+func (m *mockStorage) StreamFile(ctx context.Context, id storage.ID, key storage.Key, index int, w io.Writer) error {
+	m.streamFileCalled++
+	if m.streamFileFunc != nil {
+		return m.streamFileFunc(ctx, id, key, index, w)
+	}
+	return storage.ErrRecordNotFound
 }
 
 func (m *mockStorage) Burn(ctx context.Context, id storage.ID) error {
@@ -127,7 +150,12 @@ func setupTestRouter(db storage.Storage[storage.ID, storage.Key]) (*flow.Mux, *h
 	return mux, h
 }
 
-func createMultipartRequest(t *testing.T, method, target string, fields map[string]string, files map[string][]byte) *http.Request {
+func createMultipartRequest(
+	t *testing.T,
+	method, target string,
+	fields map[string]string,
+	files map[string][]byte,
+) *http.Request {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -216,7 +244,11 @@ func TestIndexPUT_BodyExceedsMaxBytes(t *testing.T) {
 	router, _ := setupTestRouter(mock)
 
 	boundary := "----WebKitFormBoundary7MA4YWxkTrZu0gW"
-	prefix := fmt.Sprintf("--%s\r\nContent-Disposition: form-data; name=\"secret\"\r\n\r\nmy secret\r\n--%s\r\nContent-Disposition: form-data; name=\"attachments\"; filename=\"large.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n", boundary, boundary)
+	prefix := fmt.Sprintf(
+		"--%s\r\nContent-Disposition: form-data; name=\"secret\"\r\n\r\nmy secret\r\n--%s\r\nContent-Disposition: form-data; name=\"attachments\"; filename=\"large.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n",
+		boundary,
+		boundary,
+	)
 
 	reader := &infiniteMultipartReader{prefix: []byte(prefix)}
 	req := httptest.NewRequest(http.MethodPut, "/", reader)
@@ -226,7 +258,7 @@ func TestIndexPUT_BodyExceedsMaxBytes(t *testing.T) {
 	router.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "Attachments exceed maximum allowed size (256 MiB)")
+	assert.Contains(t, rr.Body.String(), "Attachments exceed maximum allowed size (512 MiB)")
 	assert.Equal(t, 0, mock.storeCalled)
 }
 
@@ -245,7 +277,11 @@ func TestIndexPUT_OversizeAttachments(t *testing.T) {
 		Value: req.PostForm,
 		File: map[string][]*multipart.FileHeader{
 			"attachments": {
-				{Filename: "oversized.bin", Size: (256 << 20) + 1},
+				{
+					Filename: "oversized.bin",
+					Header:   nil,
+					Size:     maxAttachmentsSize + 1,
+				},
 			},
 		},
 	}
@@ -253,7 +289,7 @@ func TestIndexPUT_OversizeAttachments(t *testing.T) {
 	hHandler.indexPUT(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "Attachments exceed maximum allowed size (256 MiB)")
+	assert.Contains(t, rr.Body.String(), "Attachments exceed maximum allowed size (512 MiB)")
 	assert.Equal(t, 0, mock.storeCalled)
 }
 
@@ -371,7 +407,9 @@ func TestSecretFileGET_ValidGrant(t *testing.T) {
 
 	fileData := []byte("binary installer content for msi file")
 	secretRecord := secrets.NewSecret(sid, testKey)
-	secretRecord.AddFile("installer.msi", fileData)
+	secretRecord.Reinit("secret", nil, time.Now().Add(time.Hour), []*storage.FileRecord{
+		{Name: "installer.msi", Size: int64(len(fileData)), Content: nil},
+	})
 
 	mock := &mockStorage{
 		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
@@ -383,6 +421,13 @@ func TestSecretFileGET_ValidGrant(t *testing.T) {
 			assert.Equal(t, sid, id)
 			assert.Equal(t, storage.Key(testKey), key)
 			return secretRecord, nil
+		},
+		streamFileFunc: func(_ context.Context, id storage.ID, key storage.Key, index int, w io.Writer) error {
+			assert.Equal(t, sid, id)
+			assert.Equal(t, storage.Key(testKey), key)
+			assert.Equal(t, 0, index)
+			_, err := w.Write(fileData)
+			return err
 		},
 	}
 	router, _ := setupTestRouter(mock)
@@ -400,10 +445,47 @@ func TestSecretFileGET_ValidGrant(t *testing.T) {
 	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, fileData, rr.Body.Bytes())
 
-	// Verify Load was called, but Get and Viewed were NOT called!
+	// Verify Load and StreamFile were called, while Get and Viewed were NOT called
 	assert.Equal(t, 1, mock.loadCalled)
+	assert.Equal(t, 1, mock.streamFileCalled)
 	assert.Equal(t, 0, mock.getCalled)
 	assert.Equal(t, 0, mock.viewedCalled)
+}
+
+func TestSecretFileGET_MissingBlobReturns404(t *testing.T) {
+	t.Parallel()
+	testKey := []byte("01234567890123456789012345678901")
+	keyHex := hex.EncodeToString(testKey)
+	sid := storage.ID("test-secret-id")
+	fileURL := fmt.Sprintf("/%s-%s/files/0?g=validgrant99", keyHex, sid)
+
+	secretRecord := secrets.NewSecret(sid, testKey)
+	secretRecord.Reinit("secret", nil, time.Now().Add(time.Hour), []*storage.FileRecord{
+		{Name: "installer.msi", Size: 1024, Content: nil},
+	})
+
+	mock := &mockStorage{ //nolint:exhaustruct_v5 // mock
+		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, _ string) error {
+			return nil
+		},
+		loadFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+			return secretRecord, nil
+		},
+		streamFileFunc: func(_ context.Context, _ storage.ID, _ storage.Key, _ int, _ io.Writer) error {
+			return storage.ErrRecordNotFound
+		},
+	}
+	router, _ := setupTestRouter(mock)
+
+	req := httptest.NewRequest(http.MethodGet, fileURL, nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Empty(t, rr.Header().Get("Content-Disposition"))
+	assert.Empty(t, rr.Header().Get("No-Gzip-Compression"))
+	assert.Equal(t, 1, mock.loadCalled)
+	assert.Equal(t, 1, mock.streamFileCalled)
 }
 
 func TestSecretFileGET_InvalidOrMissingGrant(t *testing.T) {
@@ -480,17 +562,28 @@ func TestSecretFileGET_SanitizeFilename(t *testing.T) {
 	keyHex := fmt.Sprintf("%x", testKey)
 	sid := storage.ID("test-secret-id")
 
+	payloads := [][]byte{
+		[]byte("safe content"),
+		[]byte("msi content"),
+		[]byte("pdf content"),
+	}
 	secretRecord := secrets.NewSecret(sid, testKey)
-	secretRecord.AddFile("../../dangerous\"path\r\nfile.txt", []byte("safe content"))
-	secretRecord.AddFile(`C:\fakepath\installer.msi`, []byte("msi content"))
-	secretRecord.AddFile("zmluva_ščťž.pdf", []byte("pdf content"))
+	secretRecord.Reinit("secret", nil, time.Now().Add(time.Hour), []*storage.FileRecord{
+		{Name: "../../dangerous\"path\r\nfile.txt", Size: int64(len(payloads[0])), Content: nil},
+		{Name: `C:\fakepath\installer.msi`, Size: int64(len(payloads[1])), Content: nil},
+		{Name: "zmluva_ščťž.pdf", Size: int64(len(payloads[2])), Content: nil},
+	})
 
 	mock := &mockStorage{
-		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
+		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, _ string) error {
 			return nil
 		},
-		loadFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		loadFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			return secretRecord, nil
+		},
+		streamFileFunc: func(_ context.Context, _ storage.ID, _ storage.Key, index int, w io.Writer) error {
+			_, err := w.Write(payloads[index])
+			return err
 		},
 	}
 	router, _ := setupTestRouter(mock)
@@ -594,35 +687,41 @@ func TestOneViewSecret_DownloadSurvivesSecondVisit(t *testing.T) {
 
 	fileBytes := []byte("important-installer-binary")
 	secretRecord := secrets.NewSecret(sid, testKey)
-	secretRecord.SetValue("one-time secret")
-	secretRecord.AddFile("installer.msi", fileBytes)
+	secretRecord.Reinit("one-time secret", nil, time.Now().Add(time.Hour), []*storage.FileRecord{
+		{Name: "installer.msi", Size: int64(len(fileBytes)), Content: nil},
+	})
 
 	viewsRemaining := 1
 	grantActive := false
 
 	mock := &mockStorage{
-		getFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		getFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			if viewsRemaining <= 0 {
 				return nil, storage.ErrRecordNotFound
 			}
 			return secretRecord, nil
 		},
-		viewedFunc: func(ctx context.Context, id storage.ID) error {
+		viewedFunc: func(_ context.Context, _ storage.ID) error {
 			viewsRemaining--
 			return nil
 		},
-		issueDownloadGrantFunc: func(ctx context.Context, id storage.ID) (string, error) {
+		issueDownloadGrantFunc: func(_ context.Context, _ storage.ID) (string, error) {
 			grantActive = true
 			return "grant-tok-1", nil
 		},
-		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
+		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, token string) error {
 			if grantActive && token == "grant-tok-1" {
 				return nil
 			}
 			return storage.ErrRecordNotFound
 		},
-		loadFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		loadFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			return secretRecord, nil
+		},
+		streamFileFunc: func(_ context.Context, _ storage.ID, _ storage.Key, index int, w io.Writer) error {
+			assert.Equal(t, 0, index)
+			_, err := w.Write(fileBytes)
+			return err
 		},
 	}
 	router, _ := setupTestRouter(mock)
@@ -641,10 +740,11 @@ func TestOneViewSecret_DownloadSurvivesSecondVisit(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rrSecond.Code)
 	assert.Contains(t, rrSecond.Body.String(), "Nothing found")
 
-	// 3. User A clicks the attachment download link and still receives the file
+	// 3. User A clicks the attachment download link and still receives the file via StreamFile
 	reqDownload := httptest.NewRequest(http.MethodGet, urlPath+"/files/0?g=grant-tok-1", nil)
 	rrDownload := httptest.NewRecorder()
 	router.ServeHTTP(rrDownload, reqDownload)
 	assert.Equal(t, http.StatusOK, rrDownload.Code)
 	assert.Equal(t, fileBytes, rrDownload.Body.Bytes())
+	assert.Equal(t, 1, mock.streamFileCalled)
 }
