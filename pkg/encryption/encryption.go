@@ -4,11 +4,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"fmt"
+	"io"
 )
 
-func GenerateNewKey(len int) []byte {
-	key := make([]byte, len)
-	_, _ = rand.Read(key)
+func GenerateNewKey(length int) []byte {
+	key := make([]byte, length)
+	_, _ = io.ReadFull(rand.Reader, key)
 	return key
 }
 
@@ -19,8 +21,8 @@ func Encrypt(msg, key []byte) ([]byte, error) {
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err = rand.Read(nonce); err != nil {
-		return nil, err
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("failed to read random nonce: %w", err)
 	}
 
 	s := gcm.Seal(nonce, nonce, msg, nil)
@@ -36,7 +38,7 @@ func Decrypt(msg, key []byte) (string, error) {
 	nonce, ciphertext := msg[:nonceSize], msg[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to decrypt ciphertext: %w", err)
 	}
 
 	return string(plaintext), nil
@@ -45,11 +47,11 @@ func Decrypt(msg, key []byte) (string, error) {
 func getGCM(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create aes cipher: %w", err)
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create gcm: %w", err)
 	}
-	return gcm, err
+	return gcm, nil
 }

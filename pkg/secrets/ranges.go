@@ -1,6 +1,6 @@
 package secrets
 
-var ExpirationRanges = map[int]string{
+var ExpirationRanges = map[int]string{ //nolint:gochecknoglobals // exported mapping
 	30:     "30 seconds",
 	60:     "1 minute",
 	300:    "5 minutes",

@@ -1,7 +1,7 @@
 package version
 
 var (
-	Version = "dev"
-	Commit  = "none"
-	Date    = "unknown"
+	Version = "dev"     //nolint:gochecknoglobals // noop
+	Commit  = "none"    //nolint:gochecknoglobals // noop
+	Date    = "unknown" //nolint:gochecknoglobals // noop
 )

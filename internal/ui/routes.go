@@ -48,8 +48,7 @@ func (h *handlers) AddHandlers(e *flow.Mux) {
 					return
 				}
 
-				switch r.URL.Path {
-				case "/":
+				if r.URL.Path == "/" {
 					isAuthenticated := true
 					if err := server.AuthValidateToken(r); err != nil {
 						isAuthenticated = false

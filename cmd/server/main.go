@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,42 +16,54 @@ import (
 	"github.com/pudottapommin/onetime-secrets-service/internal/app"
 )
 
-var pCfg = new(atomic.Pointer[config.Config])
-
 func main() {
-	cfg := new(config.Config)
-	if err := cfg.Load(); err != nil {
-		slog.Error("failed to load config", "error", err)
+	if err := run(); err != nil {
+		slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level:       slog.LevelError,
+			AddSource:   false,
+			ReplaceAttr: nil,
+		})).Error("server terminated with error", slog.Any("error", err))
 		os.Exit(1)
 	}
-	if hk, bk, ok := cfg.InitCSRF(); ok {
-		slog.Warn("Generated new CSRF keys",
-			slog.String("hash", base64.StdEncoding.EncodeToString(hk)),
-			slog.String("block", base64.StdEncoding.EncodeToString(bk)))
-	}
+}
 
-	pCfg.Store(cfg)
+func run() error {
+	cfg := new(config.Config)
+	if err := cfg.Load(); err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
 
 	logLvl := slog.LevelWarn
 	if !cfg.IsProd {
 		logLvl = slog.LevelDebug
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
-	slog.SetDefault(logger)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:       logLvl,
+		AddSource:   false,
+		ReplaceAttr: nil,
+	}))
+
+	if hk, bk, ok := cfg.InitCSRF(); ok {
+		logger.Warn("Generated new CSRF keys",
+			slog.String("hash", base64.StdEncoding.EncodeToString(hk)),
+			slog.String("block", base64.StdEncoding.EncodeToString(bk)))
+	}
+
+	pCfg := new(atomic.Pointer[config.Config])
+	pCfg.Store(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill, syscall.SIGTERM)
 	defer stop()
 
 	db, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{cfg.Server.DB}})
 	if err != nil {
-		slog.Error("failed to create valkey client", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create valkey client: %w", err)
 	}
 	defer db.Close()
 
 	webApp := app.New(ctx, db, pCfg, logger)
 	if err = webApp.Run(); err != nil {
-		slog.Error("failed to run server", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to run server: %w", err)
 	}
+	return nil
 }

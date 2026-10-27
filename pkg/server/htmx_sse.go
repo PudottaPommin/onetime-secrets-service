@@ -15,7 +15,7 @@ type flusher interface {
 	Flush() error
 }
 
-// SSEResponse handles Server-Sent Events streaming for HTMX
+// SSEResponse handles Server-Sent Events streaming for HTMX.
 type SSEResponse struct {
 	mu             *sync.Mutex
 	w              io.Writer
@@ -25,8 +25,8 @@ type SSEResponse struct {
 	hasSentMessage bool
 }
 
-// NewSSEWriter creates a new SSE writer and sets up the required headers
-// Returns nil if the ResponseWriter doesn't support flushing
+// NewSSEWriter creates a new SSE writer and sets up the required headers.
+// Returns nil if the ResponseWriter doesn't support flushing.
 func NewSSEWriter(w http.ResponseWriter, r *http.Request) *SSEResponse {
 	rc := http.NewResponseController(w)
 
@@ -47,6 +47,7 @@ func NewSSEWriter(w http.ResponseWriter, r *http.Request) *SSEResponse {
 		w:              w,
 		rc:             rc,
 		acceptEncoding: r.Header.Get("Accept-Encoding"),
+		hasSentMessage: false,
 	}
 }
 
@@ -54,23 +55,16 @@ func (sse *SSEResponse) WriteHTML(html string) error {
 	sse.mu.Lock()
 	defer sse.mu.Unlock()
 
-	lines := make([]string, 0, 10)
-	for _, line := range strings.Split(html, "\n") {
-		lines = append(lines, line)
-	}
-
 	buf := bytebufferpool.Get()
 	defer bytebufferpool.Put(buf)
 	if !sse.hasSentMessage {
 		sse.hasSentMessage = true
-	} else {
-		//_ = buf.WriteByte('\n')
 	}
 
-	for _, l := range lines {
+	for line := range strings.SplitSeq(html, "\n") {
 		if err := errors.Join(
 			writeJustError(buf, []byte("data: ")),
-			writeJustError(buf, []byte(l)),
+			writeJustError(buf, []byte(line)),
 			writeJustError(buf, []byte{'\n'}),
 		); err != nil {
 			return fmt.Errorf("failed to write data: %w", err)
@@ -100,6 +94,8 @@ func (sse *SSEResponse) flush() error {
 }
 
 func writeJustError(w io.Writer, b []byte) error {
-	_, err := w.Write(b)
-	return err
+	if _, err := w.Write(b); err != nil {
+		return fmt.Errorf("failed to write bytes: %w", err)
+	}
+	return nil
 }

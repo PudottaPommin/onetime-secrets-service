@@ -20,6 +20,8 @@ import (
 )
 
 func TestGobEncoder(t *testing.T) {
+	t.Parallel()
+
 	type testStruct struct {
 		B []byte
 		S string
@@ -33,20 +35,22 @@ func TestGobEncoder(t *testing.T) {
 
 	encoder := GobEncoder{}
 	encoded, err := encoder.Encode(tstruct)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, encoded)
 
 	// Encode a different struct to ensure pooled buffer reuse does not overwrite encoded
 	_, err = encoder.Encode(testStruct{B: []byte("other-payload"), S: "other", I: 99})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	decoded := testStruct{}
-	assert.NoError(t, encoder.Decode(encoded, &decoded))
+	require.NoError(t, encoder.Decode(encoded, &decoded))
 	assert.Equal(t, tstruct, decoded)
 	assert.Equal(t, tstruct.B, decoded.B)
 }
 
 func TestGobEncoderStream(t *testing.T) {
+	t.Parallel()
+
 	type testStruct struct {
 		B []byte
 		S string
@@ -63,16 +67,16 @@ func TestGobEncoderStream(t *testing.T) {
 	defer bytebufferpool.Put(buf)
 
 	err := encoder.EncodeStream(buf, tstruct)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, buf.Bytes())
 
 	decoded := testStruct{}
-	assert.NoError(t, encoder.DecodeStream(bytes.NewReader(buf.Bytes()), &decoded))
+	require.NoError(t, encoder.DecodeStream(bytes.NewReader(buf.Bytes()), &decoded))
 	assert.Equal(t, tstruct, decoded)
 }
 
+//nolint:paralleltest // AllocsPerRun cannot run in parallel
 func TestAESEncryptor_DecryptWriter_ChunkBoundaries(t *testing.T) {
-	t.Parallel()
 	key := GenerateRandomKey(32)
 	enc, err := NewDefaultEncryptor(key)
 	require.NoError(t, err)
@@ -129,7 +133,7 @@ func TestAESEncryptor_DecryptWriter_ChunkBoundaries(t *testing.T) {
 	allocs := testing.AllocsPerRun(100, func() {
 		_, _ = dw.Write(sampleChunk)
 	})
-	assert.InEpsilon(t, float64(0), allocs, 0)
+	assert.Zero(t, allocs)
 }
 
 func TestAESEncryptor_ChunkedEncryptStream(t *testing.T) {

@@ -2,12 +2,15 @@ package config
 
 import (
 	"encoding/base64"
+	"fmt"
 	"reflect"
 
 	"github.com/caarlos0/env/v11"
 
 	"github.com/pudottapommin/onetime-secrets-service/pkg/encryption"
 )
+
+const csrfKeyLength = 32
 
 type Config struct {
 	IsProd    bool   `env:"OSS_PROD"       envDefault:"false"`
@@ -39,16 +42,23 @@ type Config struct {
 }
 
 func (c *Config) Load() error {
-	return env.ParseWithOptions(c, env.Options{
+	if err := env.ParseWithOptions(c, env.Options{
 		FuncMap: map[reflect.Type]env.ParserFunc{
 			reflect.TypeFor[[]byte](): func(val string) (any, error) {
 				if val == "" {
-					return nil, nil
+					return []byte(nil), nil
 				}
-				return base64.StdEncoding.DecodeString(val)
+				b, err := base64.StdEncoding.DecodeString(val)
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode base64: %w", err)
+				}
+				return b, nil
 			},
 		},
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to parse env config: %w", err)
+	}
+	return nil
 }
 
 func (c *Config) InitCSRF() ([]byte, []byte, bool) {
@@ -60,11 +70,11 @@ func (c *Config) InitCSRF() ([]byte, []byte, bool) {
 		bk []byte
 	)
 	if c.Csrf.HashKey == nil {
-		c.Csrf.HashKey = encryption.GenerateNewKey(32)
+		c.Csrf.HashKey = encryption.GenerateNewKey(csrfKeyLength)
 		hk = c.Csrf.HashKey
 	}
 	if c.Csrf.BlockKey == nil {
-		c.Csrf.BlockKey = encryption.GenerateNewKey(32)
+		c.Csrf.BlockKey = encryption.GenerateNewKey(csrfKeyLength)
 		bk = c.Csrf.BlockKey
 	}
 	return hk, bk, hk != nil || bk != nil

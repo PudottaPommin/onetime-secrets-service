@@ -18,11 +18,11 @@ issues:
   # Default: 3
   max-same-issues: 50
 
-#output:
-#  formats:
-#    tab:
-#      path: stdout
-#  sort-order: [file, linter]
+output:
+  formats:
+    tab:
+      path: stdout
+  sort-order: [file, linter]
 
 formatters:
   enable:
@@ -495,8 +495,10 @@ linters:
           - bodyclose
           - dupl
           - errcheck
+          - exhaustruct_v5
           - funlen
           - goconst
           - gosec
           - noctx
+          - testpackage
           - wrapcheck

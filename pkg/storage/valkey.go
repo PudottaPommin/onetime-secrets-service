@@ -35,26 +35,18 @@ func (s *valkeyStorage) resolveEncryptor(k Key) (Encryptor, error) {
 	}
 	encryptor, err := NewDefaultEncryptor(k)
 	if err != nil {
-		return nil, fmt.Errorf("valkeya: error creating default encryptor: %w", err)
+		return nil, fmt.Errorf("valkey: error creating default encryptor: %w", err)
 	}
 	return encryptor, nil
 }
 
-func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*InsertResult[ID, Key], error) {
-	record.Seal()
-
-	encryptor, err := s.resolveEncryptor(record.Key())
-	if err != nil {
-		return nil, err
-	}
-
-	rk, rck, _, rfk := s.generateStorageKeys(record.ID())
-	ttlSeconds := int64(record.Expiration().Seconds())
-	if ttlSeconds <= 0 {
-		ttlSeconds = 1
-	}
-
-	files := record.Files()
+func (s *valkeyStorage) storeFileBlobs(
+	ctx context.Context,
+	rfk string,
+	ttlSeconds int64,
+	files []*FileRecord,
+	encryptor Encryptor,
+) ([]storageFileMeta, bool, error) {
 	fileMetas := make([]storageFileMeta, len(files))
 	wroteFiles := false
 
@@ -76,7 +68,7 @@ func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*Ins
 			if wroteFiles {
 				_ = s.client.Do(ctx, s.client.B().Del().Key(rfk).Build()).Error()
 			}
-			return nil, fmt.Errorf("valkeya: error encrypting file %d: %w", i, encErr)
+			return nil, false, fmt.Errorf("valkey: error encrypting file %d: %w", i, encErr)
 		}
 		f.Content = nil
 
@@ -90,10 +82,31 @@ func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*Ins
 		for _, res := range s.client.DoMulti(ctx, cHset, cExpire) {
 			if res.Error() != nil {
 				_ = s.client.Do(ctx, s.client.B().Del().Key(rfk).Build()).Error()
-				return nil, fmt.Errorf("valkeya: error storing file %d: %w", i, res.Error())
+				return nil, false, fmt.Errorf("valkey: error storing file %d: %w", i, res.Error())
 			}
 		}
 		wroteFiles = true
+	}
+	return fileMetas, wroteFiles, nil
+}
+
+func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*InsertResult[ID, Key], error) {
+	record.Seal()
+
+	encryptor, err := s.resolveEncryptor(record.Key())
+	if err != nil {
+		return nil, err
+	}
+
+	rk, rck, _, rfk := s.generateStorageKeys(record.ID())
+	ttlSeconds := int64(record.Expiration().Seconds())
+	if ttlSeconds <= 0 {
+		ttlSeconds = 1
+	}
+
+	fileMetas, wroteFiles, err := s.storeFileBlobs(ctx, rfk, ttlSeconds, record.Files(), encryptor)
+	if err != nil {
+		return nil, err
 	}
 
 	sr := storageRecord{
@@ -112,24 +125,25 @@ func (s *valkeyStorage) Store(ctx context.Context, record Record[ID, Key]) (*Ins
 		if wroteFiles {
 			_ = s.client.Do(ctx, s.client.B().Del().Key(rfk).Build()).Error()
 		}
-		return nil, fmt.Errorf("valkeya: error creating encrypt stream: %w", err)
+		return nil, fmt.Errorf("valkey: error creating encrypt stream: %w", err)
 	}
 
 	if err = s.encoder.EncodeStream(ew, sr); err != nil {
 		if wroteFiles {
 			_ = s.client.Do(ctx, s.client.B().Del().Key(rfk).Build()).Error()
 		}
-		return nil, fmt.Errorf("valkeya: error encoding record: %w", err)
+		return nil, fmt.Errorf("valkey: error encoding record: %w", err)
 	}
 
 	expiresAt := time.Now().Add(record.Expiration()).UTC()
-	c1 := s.client.B().Set().Key(rck).Value(fmt.Sprintf("%d", record.MaxViews())).Nx().Ex(record.Expiration()).Build()
+	maxViewsStr := strconv.FormatUint(record.MaxViews(), 10)
+	c1 := s.client.B().Set().Key(rck).Value(maxViewsStr).Nx().Ex(record.Expiration()).Build()
 	c2 := s.client.B().Set().Key(rk).Value(valkey.BinaryString(buf.Bytes())).Nx().Ex(record.Expiration()).Build()
 
 	for _, result := range s.client.DoMulti(ctx, c1, c2) {
 		if result.Error() != nil {
 			_ = s.client.Do(ctx, s.client.B().Del().Key(rfk, rck, rk).Build()).Error()
-			return nil, fmt.Errorf("valkeya: error storing record: %w", result.Error())
+			return nil, fmt.Errorf("valkey: error storing record: %w", result.Error())
 		}
 	}
 	return newInsertResult(record.ID(), record.Key(), expiresAt), nil
@@ -142,7 +156,7 @@ func (s *valkeyStorage) Get(ctx context.Context, id ID, k Key) (Record[ID, Key],
 		if valkey.IsValkeyNil(err) {
 			return nil, ErrRecordNotFound
 		}
-		return nil, fmt.Errorf("valkeya: error getting counter: %w", err)
+		return nil, fmt.Errorf("valkey: error getting counter: %w", err)
 	}
 	if counter <= 0 {
 		hasGrant, _ := s.client.Do(ctx, s.client.B().Exists().Key(rdk).Build()).AsInt64()
@@ -161,7 +175,7 @@ func (s *valkeyStorage) Load(ctx context.Context, id ID, k Key) (Record[ID, Key]
 	rk, _, _, _ := s.generateStorageKeys(id)
 	exists, err := s.client.Do(ctx, s.client.B().Exists().Key(rk).Build()).AsInt64()
 	if err != nil {
-		return nil, fmt.Errorf("valkeya: error checking existence: %w", err)
+		return nil, fmt.Errorf("valkey: error checking existence: %w", err)
 	}
 	if exists == 0 {
 		return nil, ErrRecordNotFound
@@ -178,7 +192,7 @@ func (s *valkeyStorage) StreamFile(ctx context.Context, id ID, k Key, index int,
 		if valkey.IsValkeyNil(err) {
 			return ErrRecordNotFound
 		}
-		return fmt.Errorf("valkeya: error checking file existence: %w", err)
+		return fmt.Errorf("valkey: error checking file existence: %w", err)
 	}
 	if !exists {
 		return ErrRecordNotFound
@@ -195,10 +209,10 @@ func (s *valkeyStorage) StreamFile(ctx context.Context, id ID, k Key, index int,
 		if valkey.IsValkeyNil(err) {
 			return ErrRecordNotFound
 		}
-		return fmt.Errorf("valkeya: error streaming file: %w", err)
+		return fmt.Errorf("valkey: error streaming file: %w", err)
 	}
 	if err = dw.Close(); err != nil {
-		return fmt.Errorf("valkeya: error finalizing file stream: %w", err)
+		return fmt.Errorf("valkey: error finalizing file stream: %w", err)
 	}
 	return nil
 }
@@ -212,7 +226,7 @@ func (s *valkeyStorage) loadRecord(ctx context.Context, rk string, k Key) (Recor
 		defer pw.Close()
 		c := s.client.DoStream(ctx, s.client.B().Get().Key(rk).Build())
 		if _, err := c.WriteTo(pw); err != nil {
-			_ = pw.CloseWithError(fmt.Errorf("valkeya: error reading message: %w", err))
+			_ = pw.CloseWithError(fmt.Errorf("valkey: error reading message: %w", err))
 		}
 	}()
 
@@ -223,12 +237,12 @@ func (s *valkeyStorage) loadRecord(ctx context.Context, rk string, k Key) (Recor
 
 	dr, err := encryptor.DecryptStream(pr)
 	if err != nil {
-		return nil, fmt.Errorf("valkeya: error decrypting message: %w", err)
+		return nil, fmt.Errorf("valkey: error decrypting message: %w", err)
 	}
 
 	var sr storageRecord
 	if err = s.encoder.DecodeStream(dr, &sr); err != nil {
-		return nil, fmt.Errorf("valkeya: error decoding message: %w", err)
+		return nil, fmt.Errorf("valkey: error decoding message: %w", err)
 	}
 	files := make([]*FileRecord, len(sr.Files))
 	for i, fm := range sr.Files {
@@ -250,7 +264,7 @@ func (s *valkeyStorage) ViewsLeft(ctx context.Context, id ID) (uint64, error) {
 		if valkey.IsValkeyNil(err) {
 			return 0, ErrRecordNotFound
 		}
-		return 0, fmt.Errorf("valkeya: error getting views left: %w", err)
+		return 0, fmt.Errorf("valkey: error getting views left: %w", err)
 	}
 	return views, nil
 }
@@ -259,12 +273,15 @@ func (s *valkeyStorage) Viewed(ctx context.Context, id ID) error {
 	_, recordCounterKey, recordDownloadKey, _ := s.generateStorageKeys(id)
 	remaining, err := s.client.Do(ctx, s.client.B().Decr().Key(recordCounterKey).Build()).AsInt64()
 	if err != nil {
-		return fmt.Errorf("valkeya: error decrementing views left: %w", err)
+		return fmt.Errorf("valkey: error decrementing views left: %w", err)
 	}
 	if remaining <= 0 {
 		hasGrant, err := s.client.Do(ctx, s.client.B().Exists().Key(recordDownloadKey).Build()).AsInt64()
 		if err == nil && hasGrant > 0 {
-			return s.client.Do(ctx, s.client.B().Del().Key(recordCounterKey).Build()).Error()
+			if delErr := s.client.Do(ctx, s.client.B().Del().Key(recordCounterKey).Build()).Error(); delErr != nil {
+				return fmt.Errorf("valkey: error deleting counter: %w", delErr)
+			}
+			return nil
 		}
 		return s.Burn(ctx, id)
 	}
@@ -280,7 +297,7 @@ func (s *valkeyStorage) Burn(ctx context.Context, id ID) error {
 		s.client.B().Del().Key(recordFilesKey).Build(),
 	) {
 		if r.Error() != nil {
-			return r.Error()
+			return fmt.Errorf("valkey: error deleting key on burn: %w", r.Error())
 		}
 	}
 	return nil
@@ -290,13 +307,13 @@ func (s *valkeyStorage) IssueDownloadGrant(ctx context.Context, id ID) (string, 
 	recordKey, _, recordDownloadKey, _ := s.generateStorageKeys(id)
 	ttl, err := s.client.Do(ctx, s.client.B().Ttl().Key(recordKey).Build()).AsInt64()
 	if err != nil {
-		return "", fmt.Errorf("valkeya: error getting ttl: %w", err)
+		return "", fmt.Errorf("valkey: error getting ttl: %w", err)
 	}
 	if ttl <= 0 {
 		return "", ErrRecordNotFound
 	}
 
-	token := hex.EncodeToString(GenerateRandomKey(32))
+	token := hex.EncodeToString(GenerateRandomKey(32)) //nolint:mnd // key size
 	res := s.client.Do(
 		ctx,
 		s.client.B().Set().Key(recordDownloadKey).Value(token).Nx().Ex(time.Duration(ttl)*time.Second).Build(),
@@ -305,11 +322,11 @@ func (s *valkeyStorage) IssueDownloadGrant(ctx context.Context, id ID) (string, 
 		if valkey.IsValkeyNil(err) {
 			existingToken, getErr := s.client.Do(ctx, s.client.B().Get().Key(recordDownloadKey).Build()).ToString()
 			if getErr != nil {
-				return "", fmt.Errorf("valkeya: error getting existing grant: %w", getErr)
+				return "", fmt.Errorf("valkey: error getting existing grant: %w", getErr)
 			}
 			return existingToken, nil
 		}
-		return "", fmt.Errorf("valkeya: error setting grant: %w", err)
+		return "", fmt.Errorf("valkey: error setting grant: %w", err)
 	}
 	return token, nil
 }
@@ -324,7 +341,7 @@ func (s *valkeyStorage) ValidDownloadGrant(ctx context.Context, id ID, token str
 		if valkey.IsValkeyNil(err) {
 			return ErrRecordNotFound
 		}
-		return fmt.Errorf("valkeya: error getting grant: %w", err)
+		return fmt.Errorf("valkey: error getting grant: %w", err)
 	}
 	if subtle.ConstantTimeCompare([]byte(token), []byte(storedToken)) != 1 {
 		return ErrRecordNotFound

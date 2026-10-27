@@ -12,6 +12,6 @@ func BuiltinAssets() *vfs.Layer {
 	return vfs.Blobs("builtin(bindata)", Assets)
 }
 
-func Url(path string) string {
+func URL(path string) string {
 	return "/static/" + Assets.HashedByPath(path)
 }

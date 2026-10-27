@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -141,7 +142,7 @@ func setupTestRouter(db storage.Storage[storage.ID, storage.Key]) (*flow.Mux, *h
 
 	h := &handlers{
 		cfg: pCfg,
-		l:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		l:   slog.New(slog.DiscardHandler),
 		db:  db,
 	}
 
@@ -178,8 +179,10 @@ func createMultipartRequest(
 }
 
 func TestIndexPUT_StoreError(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{
-		storeFunc: func(ctx context.Context, record storage.Record[storage.ID, storage.Key]) (*storage.InsertResult[storage.ID, storage.Key], error) {
+		storeFunc: func(_ context.Context, _ storage.Record[storage.ID, storage.Key]) (*storage.InsertResult[storage.ID, storage.Key], error) {
 			return nil, errors.New("valkey connection error")
 		},
 	}
@@ -203,6 +206,8 @@ func TestIndexPUT_StoreError(t *testing.T) {
 }
 
 func TestIndexPUT_StoreSuccess(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{}
 	router, _ := setupTestRouter(mock)
 
@@ -240,6 +245,8 @@ func (r *infiniteMultipartReader) Read(p []byte) (int, error) {
 }
 
 func TestIndexPUT_BodyExceedsMaxBytes(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{}
 	router, _ := setupTestRouter(mock)
 
@@ -263,6 +270,8 @@ func TestIndexPUT_BodyExceedsMaxBytes(t *testing.T) {
 }
 
 func TestIndexPUT_OversizeAttachments(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{}
 	_, hHandler := setupTestRouter(mock)
 
@@ -294,6 +303,8 @@ func TestIndexPUT_OversizeAttachments(t *testing.T) {
 }
 
 func TestIndexPUT_FileReadFailure(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{}
 	_, hHandler := setupTestRouter(mock)
 
@@ -321,8 +332,10 @@ func TestIndexPUT_FileReadFailure(t *testing.T) {
 }
 
 func TestSecretPOST_SuccessWithFiles(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901") // 32 bytes
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 	urlPath := fmt.Sprintf("/%s-%s", keyHex, sid)
 
@@ -332,12 +345,12 @@ func TestSecretPOST_SuccessWithFiles(t *testing.T) {
 	secretRecord.AddFile("setup.msi", []byte("MZ-dummy-msi-binary"))
 
 	mock := &mockStorage{
-		getFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		getFunc: func(_ context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			assert.Equal(t, sid, id)
 			assert.Equal(t, storage.Key(testKey), key)
 			return secretRecord, nil
 		},
-		issueDownloadGrantFunc: func(ctx context.Context, id storage.ID) (string, error) {
+		issueDownloadGrantFunc: func(_ context.Context, _ storage.ID) (string, error) {
 			return "tok12345", nil
 		},
 	}
@@ -370,8 +383,10 @@ func TestSecretPOST_SuccessWithFiles(t *testing.T) {
 }
 
 func TestSecretPOST_WrongPassphrase(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 	urlPath := fmt.Sprintf("/%s-%s", keyHex, sid)
 
@@ -381,7 +396,7 @@ func TestSecretPOST_WrongPassphrase(t *testing.T) {
 	secretRecord.AddFile("secret.txt", []byte("hello"))
 
 	mock := &mockStorage{
-		getFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		getFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			return secretRecord, nil
 		},
 	}
@@ -400,8 +415,10 @@ func TestSecretPOST_WrongPassphrase(t *testing.T) {
 }
 
 func TestSecretFileGET_ValidGrant(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 	fileURL := fmt.Sprintf("/%s-%s/files/0?g=validgrant99", keyHex, sid)
 
@@ -412,12 +429,12 @@ func TestSecretFileGET_ValidGrant(t *testing.T) {
 	})
 
 	mock := &mockStorage{
-		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
+		validDownloadGrantFunc: func(_ context.Context, id storage.ID, token string) error {
 			assert.Equal(t, sid, id)
 			assert.Equal(t, "validgrant99", token)
 			return nil
 		},
-		loadFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		loadFunc: func(_ context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			assert.Equal(t, sid, id)
 			assert.Equal(t, storage.Key(testKey), key)
 			return secretRecord, nil
@@ -439,7 +456,7 @@ func TestSecretFileGET_ValidGrant(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "application/octet-stream", rr.Header().Get("Content-Type"))
 	assert.Equal(t, `attachment; filename="installer.msi"`, rr.Header().Get("Content-Disposition"))
-	assert.Equal(t, fmt.Sprintf("%d", len(fileData)), rr.Header().Get("Content-Length"))
+	assert.Equal(t, strconv.Itoa(len(fileData)), rr.Header().Get("Content-Length"))
 	assert.Equal(t, "true", rr.Header().Get("No-Gzip-Compression"))
 	assert.Equal(t, "no-store", rr.Header().Get("Cache-Control"))
 	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
@@ -464,7 +481,7 @@ func TestSecretFileGET_MissingBlobReturns404(t *testing.T) {
 		{Name: "installer.msi", Size: 1024, Content: nil},
 	})
 
-	mock := &mockStorage{ //nolint:exhaustruct_v5 // mock
+	mock := &mockStorage{
 		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, _ string) error {
 			return nil
 		},
@@ -489,12 +506,14 @@ func TestSecretFileGET_MissingBlobReturns404(t *testing.T) {
 }
 
 func TestSecretFileGET_InvalidOrMissingGrant(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 
 	mock := &mockStorage{
-		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
+		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, _ string) error {
 			return storage.ErrRecordNotFound
 		},
 	}
@@ -516,18 +535,20 @@ func TestSecretFileGET_InvalidOrMissingGrant(t *testing.T) {
 }
 
 func TestSecretFileGET_IndexOutOfRange(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 
 	secretRecord := secrets.NewSecret(sid, testKey)
 	secretRecord.AddFile("onlyone.txt", []byte("hello"))
 
 	mock := &mockStorage{
-		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
+		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, _ string) error {
 			return nil
 		},
-		loadFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		loadFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			return secretRecord, nil
 		},
 	}
@@ -541,6 +562,8 @@ func TestSecretFileGET_IndexOutOfRange(t *testing.T) {
 }
 
 func TestSecretFileGET_BadPath(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{}
 	router, _ := setupTestRouter(mock)
 
@@ -558,8 +581,10 @@ func TestSecretFileGET_BadPath(t *testing.T) {
 }
 
 func TestSecretFileGET_SanitizeFilename(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 
 	payloads := [][]byte{
@@ -617,18 +642,20 @@ func TestSecretFileGET_SanitizeFilename(t *testing.T) {
 }
 
 func TestSecretFileGET_ZeroByteAttachment(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 
 	secretRecord := secrets.NewSecret(sid, testKey)
 	secretRecord.AddFile("empty.bin", []byte{})
 
 	mock := &mockStorage{
-		validDownloadGrantFunc: func(ctx context.Context, id storage.ID, token string) error {
+		validDownloadGrantFunc: func(_ context.Context, _ storage.ID, _ string) error {
 			return nil
 		},
-		loadFunc: func(ctx context.Context, id storage.ID, key storage.Key) (storage.Record[storage.ID, storage.Key], error) {
+		loadFunc: func(_ context.Context, _ storage.ID, _ storage.Key) (storage.Record[storage.ID, storage.Key], error) {
 			return secretRecord, nil
 		},
 	}
@@ -644,6 +671,8 @@ func TestSecretFileGET_ZeroByteAttachment(t *testing.T) {
 }
 
 func TestIndexGET_And_IndexPUT_Auth(t *testing.T) {
+	t.Parallel()
+
 	mock := &mockStorage{}
 	router, h := setupTestRouter(mock)
 
@@ -680,8 +709,10 @@ func TestIndexGET_And_IndexPUT_Auth(t *testing.T) {
 }
 
 func TestOneViewSecret_DownloadSurvivesSecondVisit(t *testing.T) {
+	t.Parallel()
+
 	testKey := []byte("01234567890123456789012345678901")
-	keyHex := fmt.Sprintf("%x", testKey)
+	keyHex := hex.EncodeToString(testKey)
 	sid := storage.ID("test-secret-id")
 	urlPath := fmt.Sprintf("/%s-%s", keyHex, sid)
 

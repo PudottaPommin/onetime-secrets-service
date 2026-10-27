@@ -29,6 +29,7 @@ import (
 
 type App struct {
 	*server.Server
+
 	db  valkey.Client
 	cfg *atomic.Pointer[config.Config]
 	l   *slog.Logger
@@ -38,7 +39,7 @@ func New(ctx context.Context, db valkey.Client, cfg *atomic.Pointer[config.Confi
 	return &App{Server: server.New(ctx, flow.New()), db: db, cfg: cfg, l: l}
 }
 
-func (a *App) Run() (err error) {
+func (a *App) Run() error {
 	cfg := a.cfg.Load()
 
 	// if enabled, reload template from FS
@@ -86,14 +87,14 @@ func (a *App) Run() (err error) {
 		}
 		a.E().Use(csrf.New(sc,
 			csrf.WithCookieName("oss_csrf"),
-			csrf.WithNext(func(w http.ResponseWriter, r *http.Request) bool {
+			csrf.WithNext(func(_ http.ResponseWriter, r *http.Request) bool {
 				return strings.HasPrefix(r.URL.Path, "/api/")
 			}),
 		).Handler)
 	}
 
 	a.E().HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, assets.Url("favicon.ico"), http.StatusMovedPermanently)
+		http.Redirect(w, r, assets.URL("favicon.ico"), http.StatusMovedPermanently)
 	}, http.MethodGet)
 
 	api.NewHandlers(a.cfg, a.db, a.l).AddHandlers(a.E())

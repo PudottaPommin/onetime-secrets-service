@@ -29,7 +29,7 @@ type aesEncryptor struct {
 func NewDefaultEncryptor(key []byte) (Encryptor, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create aes cipher: %w", err)
 	}
 	return &aesEncryptor{block: block}, nil
 }
@@ -37,7 +37,7 @@ func NewDefaultEncryptor(key []byte) (Encryptor, error) {
 func (e aesEncryptor) EncryptStream(w io.Writer) (io.Writer, error) {
 	iv := GenerateRandomKey(e.block.BlockSize())
 	if _, err := w.Write(iv); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to write iv: %w", err)
 	}
 	stream := cipher.NewCTR(e.block, iv)
 	return &chunkedStreamWriter{stream: stream, w: w}, nil //nolint:exhaustruct_v5 // it's buf
@@ -46,7 +46,7 @@ func (e aesEncryptor) EncryptStream(w io.Writer) (io.Writer, error) {
 func (e aesEncryptor) DecryptStream(r io.Reader) (io.Reader, error) {
 	iv := make([]byte, e.block.BlockSize())
 	if _, err := io.ReadFull(r, iv); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read iv: %w", err)
 	}
 	stream := cipher.NewCTR(e.block, iv)
 	return &cipher.StreamReader{S: stream, R: r}, nil

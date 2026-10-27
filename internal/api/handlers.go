@@ -19,6 +19,11 @@ import (
 	"github.com/pudottapommin/onetime-secrets-service/pkg/storage"
 )
 
+const (
+	defaultKeyLength = 32
+	secretPathParts  = 2
+)
+
 func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -26,13 +31,13 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	decoder := jsontext.NewDecoder(r.Body)
 	if err := json.UnmarshalDecode(decoder, &dto); err != nil {
-		slog.Error("failed to decode request body", "error", err)
+		h.l.ErrorContext(ctx, "failed to decode request body", slog.Any("error", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	sid := storage.ID(id.New().String())
-	key := encryption.GenerateNewKey(32)
+	key := encryption.GenerateNewKey(defaultKeyLength)
 	secret := secrets.NewSecret(sid, key)
 	secret.SetValue(dto.Value)
 
@@ -50,7 +55,7 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 
 	insert, err := h.db.Store(ctx, secret)
 	if err != nil {
-		slog.Error("failed to store secret", "error", err)
+		h.l.ErrorContext(ctx, "failed to store secret", slog.Any("error", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -59,10 +64,10 @@ func (h *handlers) secretPUT(w http.ResponseWriter, r *http.Request) {
 	encoder := jsontext.NewEncoder(w)
 	normalizedID := strings.ReplaceAll(string(sid), "-", "")
 	if err = json.MarshalEncode(encoder, SecretResponseData{
-		Url:       fmt.Sprintf("%s/%x-%s", h.cfg.Load().Server.Domain, insert.Key, normalizedID),
+		URL:       fmt.Sprintf("%s/%x-%s", h.cfg.Load().Server.Domain, insert.Key, normalizedID),
 		ExpiresAt: insert.ExpiresAt,
 	}); err != nil {
-		slog.Error("failed to encode response", "error", err)
+		h.l.ErrorContext(ctx, "failed to encode response", slog.Any("error", err))
 		w.Header().Del("Content-Type")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -77,14 +82,14 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parts := strings.SplitN(value, "-", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(value, "-", secretPathParts)
+	if len(parts) != secretPathParts {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	encKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		h.l.Error("failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
+		h.l.ErrorContext(ctx, "failed to decode encryption key", slog.Any("err", err), slog.String("path", r.URL.Path))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -96,19 +101,20 @@ func (h *handlers) secretGET(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	case err != nil:
-		slog.Error("failed to get secret", "error", err)
+		h.l.ErrorContext(ctx, "failed to get secret", slog.Any("error", err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if _, err = io.WriteString(w, secret.Value()); err != nil {
-		h.l.Error("failed to write secret response", "error", err)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if _, err = io.WriteString(w, secret.Value()); err != nil { //nolint:gosec // plain text response with nosniff
+		h.l.ErrorContext(ctx, "failed to write secret response", slog.Any("error", err))
 		return
 	}
 
 	if err = h.db.Viewed(ctx, sid); err != nil {
-		h.l.Error("failed to mark secret as viewed", "error", err)
+		h.l.ErrorContext(ctx, "failed to mark secret as viewed", slog.Any("error", err))
 	}
 }

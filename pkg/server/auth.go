@@ -17,28 +17,29 @@ import (
 type authContextKey uint
 
 const (
-	AuthContextKey authContextKey = 0
-	authExpiration                = time.Hour * 12
-	authCookieName                = "oss_auth"
+	AuthContextKey  authContextKey = 0
+	authExpiration                 = time.Hour * 12
+	authCookieName                 = "oss_auth"
+	authHeaderParts                = 2
 )
 
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidAuthCookie  = errors.New("invalid auth cookie")
 
-	authState = new(sync.Map)
+	authState = new(sync.Map) //nolint:gochecknoglobals // in-memory session token cache
 )
 
-func newAuthToken() (token string, expiresAt time.Time) {
-	token = id.New().String()
-	expiresAt = time.Now().Add(authExpiration)
+func newAuthToken() (string, time.Time) {
+	token := id.New().String()
+	expiresAt := time.Now().Add(authExpiration)
 	authState.Store(token, expiresAt)
-	return
+	return token, expiresAt
 }
 
 func AuthSetCookie(w http.ResponseWriter) {
 	token, _ := newAuthToken()
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:exhaustruct_v5 // standard cookie fields
 		Name:     authCookieName,
 		Value:    token,
 		Path:     "/",
@@ -62,7 +63,8 @@ func AuthValidateToken(r *http.Request) error {
 	if !ok {
 		return ErrInvalidAuthCookie
 	}
-	if expiresAt.(time.Time).Before(time.Now()) {
+	expTime, ok := expiresAt.(time.Time)
+	if !ok || expTime.Before(time.Now()) {
 		return ErrInvalidAuthCookie
 	}
 	return nil
@@ -83,8 +85,8 @@ func AuthValidateHeader(r *http.Request, username, password string) error {
 		return fmt.Errorf("failed to decode authorization header: %w", err)
 	}
 
-	pair := strings.SplitN(string(payload), ":", 2)
-	if len(pair) != 2 {
+	pair := strings.SplitN(string(payload), ":", authHeaderParts)
+	if len(pair) != authHeaderParts {
 		return errors.New("invalid authorization payload format")
 	}
 
@@ -104,8 +106,8 @@ func AuthTokenCleanup(ctx context.Context) {
 		case <-ticker.C:
 			time.Sleep(time.Minute * 1)
 			authState.Range(func(k, v any) bool {
-				expiresAt := v.(time.Time)
-				if expiresAt.Before(time.Now()) {
+				expTime, ok := v.(time.Time)
+				if !ok || expTime.Before(time.Now()) {
 					authState.Delete(k)
 				}
 				return true

@@ -11,18 +11,20 @@ type (
 	}
 	PageIndex struct {
 		*FormModel
+
 		IsAuthenticated bool
 	}
 	PageSecret struct {
 		*FormModel
+
 		NotFound   bool
-		Url        string
+		URL        string
 		Secret     string
 		Passphrase *string
 		ViewsLeft  uint64
 	}
 	CardSecretCreated struct {
-		Url       string
+		URL       string
 		ExpiresAt time.Time
 	}
 	SecretFileLink struct {
@@ -30,7 +32,7 @@ type (
 		URL  string
 	}
 	CardSecretDecrypted struct {
-		Url       string
+		URL       string
 		Secret    string
 		ExpiresAt time.Time
 		Files     []SecretFileLink

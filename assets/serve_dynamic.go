@@ -10,6 +10,6 @@ func BuiltinAssets() *vfs.Layer {
 	return vfs.Local("builtin(dynamic)", ".", "assets/cdn")
 }
 
-func Url(path string) string {
+func URL(path string) string {
 	return "/static/" + path
 }

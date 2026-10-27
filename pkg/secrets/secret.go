@@ -19,10 +19,21 @@ type (
 	}
 )
 
+const defaultSecretExpiration = 30 * time.Minute
+
 var _ storage.Record[storage.ID, storage.Key] = (*Secret)(nil)
 
 func NewSecret(id storage.ID, key storage.Key) *Secret {
-	return &Secret{id: id, key: key, maxViews: 1, expiration: time.Minute * 30, files: make([]*storage.FileRecord, 0)}
+	return &Secret{
+		id:         id,
+		key:        key,
+		maxViews:   1,
+		expiration: defaultSecretExpiration,
+		passphrase: nil,
+		value:      "",
+		expiresAt:  time.Time{},
+		files:      make([]*storage.FileRecord, 0),
+	}
 }
 
 func (s *Secret) ID() storage.ID {

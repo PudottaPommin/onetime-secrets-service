@@ -12,7 +12,7 @@ type (
 		MaxViews   *uint64 `json:"max_views,omitempty"`
 	}
 	SecretResponseData struct {
-		Url       string    `json:"url"`
+		URL       string    `json:"url"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
 )
